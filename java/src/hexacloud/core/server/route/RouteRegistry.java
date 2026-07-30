@@ -56,12 +56,22 @@ public class RouteRegistry {
         for(Method method : clazz.getDeclaredMethods()) {
             if(method.isAnnotationPresent(RouteMapping.class)) {
                 RouteMapping mapping = method.getAnnotation(RouteMapping.class);
-                String command = mapping.value().toUpperCase();
+                String raw = mapping.value();
+                String pathKey = raw.startsWith("/") ? raw : "/" + raw;
+                String upperKey = pathKey.toUpperCase();
+                String lowerKey = pathKey.toLowerCase();
+
                 if (mapping.isPublic()) {
-                    publicRoutes.add(command);
+                    publicRoutes.add(raw);
+                    publicRoutes.add(pathKey);
+                    publicRoutes.add(upperKey);
+                    publicRoutes.add(lowerKey);
                 }
                 if (mapping.fastPath()) {
-                    fastPathRoutes.add(command);
+                    fastPathRoutes.add(raw);
+                    fastPathRoutes.add(pathKey);
+                    fastPathRoutes.add(upperKey);
+                    fastPathRoutes.add(lowerKey);
                 }
                 
                 Class<?>[] paramTypes = method.getParameterTypes();
@@ -90,8 +100,11 @@ public class RouteRegistry {
                             }
                         };
                     }
-                    routes.put(command, handler);
-                    DebugUtils.info("RouteScanner: [" + name + "] Registered command '" + command + "' mapping to method " + clazz.getSimpleName() + "." + method.getName());
+                    routes.put(raw, handler);
+                    routes.put(pathKey, handler);
+                    routes.put(upperKey, handler);
+                    routes.put(lowerKey, handler);
+                    DebugUtils.info("RouteScanner: [" + name + "] Registered route '" + raw + "' mapping to method " + clazz.getSimpleName() + "." + method.getName());
                 } else {
                     DebugUtils.error("RouteScanner: Failed to register method " + clazz.getSimpleName() + "." + method.getName() + " -> Must accept parameters (String, PrintWriter)");
                 }

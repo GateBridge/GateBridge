@@ -33,6 +33,7 @@ public class UndertowHttpTransport implements ServerTransport {
     private boolean running = false;
     private java.util.concurrent.ExecutorService virtualExecutor;
     private final HttpErrorHandler errorHandler = new DefaultHttpErrorHandler();
+    private final java.util.concurrent.atomic.AtomicInteger activeRequests = new java.util.concurrent.atomic.AtomicInteger(0);
     private final ReverseProxyService reverseProxyService = new ReverseProxyService(new hexacloud.core.utils.network.JdkHttpProxyClient(), errorHandler);
 
     private hexacloud.core.server.PerformanceProfile performanceProfile = hexacloud.core.server.PerformanceProfile.STANDARD;
@@ -127,29 +128,36 @@ public class UndertowHttpTransport implements ServerTransport {
                 @Override
                 public void handleRequest(HttpServerExchange exchange) throws Exception {
                     String path = exchange.getRequestPath();
-                    String matchingPath = path.startsWith("/v1/") ? path.substring(3) : (path.equals("/v1") ? "/" : path);
-                    
-                    RouteResolution resolution = PathResolver.resolve(matchingPath, exchange.getRequestHeaders().getFirst(io.undertow.util.Headers.HOST), registry);
+                    RouteResolution resolution = PathResolver.resolve(path, exchange.getRequestHeaders().getFirst(io.undertow.util.Headers.HOST), registry);
                     boolean canUseFastPath = resolution.isLocal() 
                             && registry.isRouteFastPath(resolution.localRouteName())
                             && (activeFilters.isEmpty() || (activeFilters.size() == 1 && activeFilters.get(0) instanceof CorsFilter));
 
                     if (canUseFastPath) {
-                        processRequest(exchange, registry);
+                        processRequest(exchange, registry, resolution);
                         return;
                     }
 
                     if (exchange.isInIoThread()) {
-                        exchange.dispatch(virtualExecutor, () -> {
-                            try {
-                                processRequest(exchange, registry);
-                            } catch (Exception e) {
-                                handleError(exchange, e);
-                            }
-                        });
+                        if (activeRequests.incrementAndGet() <= 1500) {
+                            exchange.dispatch(virtualExecutor, () -> {
+                                try {
+                                    processRequest(exchange, registry, resolution);
+                                } catch (Exception e) {
+                                    handleError(exchange, e);
+                                } finally {
+                                    activeRequests.decrementAndGet();
+                                }
+                            });
+                        } else {
+                            activeRequests.decrementAndGet();
+                            exchange.setStatusCode(503);
+                            exchange.getResponseHeaders().put(io.undertow.util.Headers.CONTENT_TYPE, "text/plain");
+                            exchange.getResponseSender().send("503 Service Unavailable - Gateway Overloaded");
+                        }
                         return;
                     }
-                    processRequest(exchange, registry);
+                    processRequest(exchange, registry, resolution);
                 }
             });
 
@@ -162,10 +170,13 @@ public class UndertowHttpTransport implements ServerTransport {
         }
     }
 
-    private void processRequest(HttpServerExchange exchange, RouteRegistry registry) {
+    private static final io.undertow.util.HttpString HEADER_CORS_ORIGIN = io.undertow.util.HttpString.tryFromString("Access-Control-Allow-Origin");
+    private static final io.undertow.util.HttpString HEADER_CORS_METHODS = io.undertow.util.HttpString.tryFromString("Access-Control-Allow-Methods");
+    private static final io.undertow.util.HttpString HEADER_CORS_HEADERS = io.undertow.util.HttpString.tryFromString("Access-Control-Allow-Headers");
+
+    private void processRequest(HttpServerExchange exchange, RouteRegistry registry, RouteResolution resolution) {
         try {
             UndertowHttpRequestImpl req = new UndertowHttpRequestImpl(exchange);
-            RouteResolution resolution = PathResolver.resolve(req.getPath(), req.getHeader("Host"), registry);
 
             boolean canUseFastPath = resolution.isLocal() 
                     && registry.isRouteFastPath(resolution.localRouteName())
@@ -173,9 +184,9 @@ public class UndertowHttpTransport implements ServerTransport {
 
             if (canUseFastPath) {
                 // Set CORS headers directly
-                exchange.getResponseHeaders().put(io.undertow.util.HttpString.tryFromString("Access-Control-Allow-Origin"), "*");
-                exchange.getResponseHeaders().put(io.undertow.util.HttpString.tryFromString("Access-Control-Allow-Methods"), "GET, POST, OPTIONS, PUT, DELETE");
-                exchange.getResponseHeaders().put(io.undertow.util.HttpString.tryFromString("Access-Control-Allow-Headers"), "X-Cluster-Token, Content-Type, Authorization");
+                exchange.getResponseHeaders().put(HEADER_CORS_ORIGIN, "*");
+                exchange.getResponseHeaders().put(HEADER_CORS_METHODS, "GET, POST, OPTIONS, PUT, DELETE");
+                exchange.getResponseHeaders().put(HEADER_CORS_HEADERS, "X-Cluster-Token, Content-Type, Authorization");
 
                 if (io.undertow.util.Methods.OPTIONS.equals(exchange.getRequestMethod())) {
                     exchange.setStatusCode(204);
@@ -221,8 +232,7 @@ public class UndertowHttpTransport implements ServerTransport {
                 }
 
                 executeRoute(req, res, resolution, registry);
-                res.flushBuffer();
-                exchange.endExchange();
+                sendResponse(res, exchange);
                 return;
             }
 
@@ -236,17 +246,26 @@ public class UndertowHttpTransport implements ServerTransport {
 
             HttpFilterChainImpl chain = new HttpFilterChainImpl(activeFilters, routeHandler);
             chain.doFilter(req, res);
-            res.flushBuffer();
-            exchange.endExchange();
+            sendResponse(res, exchange);
 
         } catch (Exception e) {
             DebugUtils.error("UndertowHttpTransport: Exception caught in filter chain pipeline: " + e.getMessage(), e);
             try {
                 UndertowHttpResponseImpl res = new UndertowHttpResponseImpl(exchange);
                 errorHandler.handleException(res, e);
-                res.flushBuffer();
-                exchange.endExchange();
+                sendResponse(res, exchange);
             } catch (Exception ignored) {}
+        }
+    }
+
+    private void sendResponse(UndertowHttpResponseImpl res, HttpServerExchange exchange) {
+        res.flushBuffer();
+        if (res.hasBody()) {
+            byte[] bytes = res.getBodyBytes();
+            exchange.getResponseHeaders().put(io.undertow.util.Headers.CONTENT_LENGTH, String.valueOf(bytes.length));
+            exchange.getResponseSender().send(java.nio.ByteBuffer.wrap(bytes));
+        } else {
+            exchange.endExchange();
         }
     }
 

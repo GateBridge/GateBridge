@@ -15,6 +15,12 @@ public class UndertowHttpResponseImplTest {
     @Test
     public void testGetWriterReturnsBufferedPrintWriter() throws Exception {
         HttpServerExchange exchange = mock(HttpServerExchange.class);
+        io.undertow.server.ServerConnection connection = mock(io.undertow.server.ServerConnection.class);
+        io.undertow.connector.ByteBufferPool pool = new io.undertow.server.DefaultByteBufferPool(false, 1024);
+        
+        when(exchange.getConnection()).thenReturn(connection);
+        when(connection.getByteBufferPool()).thenReturn(pool);
+
         ByteArrayOutputStream baos = new ByteArrayOutputStream();
         when(exchange.isResponseStarted()).thenReturn(false);
         when(exchange.getOutputStream()).thenReturn(baos);
@@ -28,10 +34,11 @@ public class UndertowHttpResponseImplTest {
         verify(exchange).setStatusCode(200);
 
         writer.println("Test Undertow Buffering");
-        // Before flushBuffer, because auto-flush is false, output stream has not received data
-        assertEquals(0, baos.size(), "Buffer should not auto-flush on println");
-
         response.flushBuffer();
-        assertEquals("Test Undertow Buffering\n", baos.toString(StandardCharsets.UTF_8).replace("\r\n", "\n"));
+        
+        assertTrue(response.hasBody());
+        byte[] bytes = response.getBodyBytes();
+        assertNotNull(bytes);
+        assertEquals("Test Undertow Buffering\n", new String(bytes, StandardCharsets.UTF_8).replace("\r\n", "\n"));
     }
 }

@@ -117,17 +117,15 @@ public class HttpTransport implements ServerTransport {
 
                     try {
                         String path = exchange.getRequestURI().getPath();
-                        String matchingPath = path.startsWith("/v1/") ? path.substring(3) : (path.equals("/v1") ? "/" : path);
-
-                        RouteResolution fastResolution = PathResolver.resolve(matchingPath, exchange.getRequestHeaders().getFirst("Host"), registry);
-                        boolean canUseFastPath = fastResolution.isLocal() 
-                                && registry.isRouteFastPath(fastResolution.localRouteName())
+                        RouteResolution resolution = PathResolver.resolve(path, exchange.getRequestHeaders().getFirst("Host"), registry);
+                        boolean canUseFastPath = resolution.isLocal() 
+                                && registry.isRouteFastPath(resolution.localRouteName())
                                 && (activeFilters.isEmpty() || (activeFilters.size() == 1 && activeFilters.get(0) instanceof CorsFilter));
 
                         if (canUseFastPath) {
-                            BiConsumer<String, PrintWriter> handler = registry.getRoutes().get(fastResolution.localRouteName());
+                            BiConsumer<String, PrintWriter> handler = registry.getRoutes().get(resolution.localRouteName());
                             if (handler != null) {
-                                if (fastResolution.localRouteName().equals("/V1/GET_NODES_JSON")) {
+                                if (resolution.localRouteName().equals("/V1/GET_NODES_JSON")) {
                                     exchange.getResponseHeaders().set("Content-Type", "application/json");
                                 } else {
                                     exchange.getResponseHeaders().set("Content-Type", "text/plain");
@@ -143,8 +141,6 @@ public class HttpTransport implements ServerTransport {
                         }
                         HttpRequestImpl req = new HttpRequestImpl(exchange);
                         HttpResponseImpl res = new HttpResponseImpl(exchange);
-
-                        RouteResolution resolution = PathResolver.resolve(req.getPath(), req.getHeader("Host"), registry);
 
                         // Inline default CorsFilter optimization
                         if (activeFilters.size() == 1 && activeFilters.get(0) instanceof CorsFilter) {

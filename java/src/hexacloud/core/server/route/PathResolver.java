@@ -5,22 +5,42 @@ import java.util.List;
 public class PathResolver {
 
     public static RouteResolution resolve(String path, String host, RouteRegistry registry) {
-        if (path == null) {
+        if (path == null || path.isEmpty()) {
             return new RouteResolution(null, null, false, null, null);
         }
 
-        String matchingPath = path.trim();
-        while (matchingPath.contains("//")) {
-            matchingPath = matchingPath.replace("//", "/");
+        // 1. Direct O(1) Local Route Lookup (Hot path)
+        if (registry != null) {
+            String upper = path.toUpperCase();
+            if (registry.getRoutes().containsKey(upper)) {
+                return new RouteResolution(null, null, false, upper, null);
+            }
+            if (registry.getRoutes().containsKey(path)) {
+                return new RouteResolution(null, null, false, upper, null);
+            }
         }
 
-        // 1. Resolve local route key using slash and prefix tolerance
+        String matchingPath = path;
+        if (path.contains("//")) {
+            matchingPath = path.replaceAll("//+", "/");
+            if (registry != null) {
+                String upper = matchingPath.toUpperCase();
+                if (registry.getRoutes().containsKey(upper)) {
+                    return new RouteResolution(null, null, false, upper, null);
+                }
+                if (registry.getRoutes().containsKey(matchingPath)) {
+                    return new RouteResolution(null, null, false, upper, null);
+                }
+            }
+        }
+
+        // 2. Resolve local route key using fallback tolerances
         String localRouteKey = findLocalRouteKey(matchingPath, registry);
         if (localRouteKey != null) {
             return new RouteResolution(null, null, false, localRouteKey, null);
         }
 
-        // 2. Resolve proxy paths (/clusters/{name}/...)
+        // 3. Resolve proxy paths (/clusters/{name}/...)
         int clustersIdx = matchingPath.indexOf("/clusters/");
         if (clustersIdx != -1) {
             String prefix = matchingPath.substring(0, clustersIdx);
@@ -38,12 +58,14 @@ public class PathResolver {
             return new RouteResolution(targetClusterName, clusterSubpath, false, null, prefix);
         }
 
-        // 3. Match Ingress rules
-        List<RouteRule> rules = registry.getRouteRulesList();
-        if (rules != null && !rules.isEmpty()) {
-            for (RouteRule rule : rules) {
-                if (rule.matches(host, matchingPath)) {
-                    return new RouteResolution(rule.getClusterName(), rule.rewritePath(matchingPath), true, null, null);
+        // 4. Match Ingress rules
+        if (registry != null) {
+            List<RouteRule> rules = registry.getRouteRulesList();
+            if (rules != null && !rules.isEmpty()) {
+                for (RouteRule rule : rules) {
+                    if (rule.matches(host, matchingPath)) {
+                        return new RouteResolution(rule.getClusterName(), rule.rewritePath(matchingPath), true, null, null);
+                    }
                 }
             }
         }
@@ -52,51 +74,30 @@ public class PathResolver {
     }
 
     private static String findLocalRouteKey(String matchingPath, RouteRegistry registry) {
-        String routeKey = matchingPath.toUpperCase();
-        
-        // Try exact match
-        if (registry.getRoutes().containsKey(routeKey)) {
-            return routeKey;
+        if (registry == null) return null;
+
+        String upper = matchingPath.toUpperCase();
+        if (registry.getRoutes().containsKey(upper)) {
+            return upper;
         }
-        
-        // Try stripping leading slash
-        if (routeKey.startsWith("/") && routeKey.length() > 1) {
-            String stripped = routeKey.substring(1);
+
+        if (upper.startsWith("/") && upper.length() > 1) {
+            String stripped = upper.substring(1);
             if (registry.getRoutes().containsKey(stripped)) {
                 return stripped;
             }
         }
-        
-        // Try adding leading slash
-        if (!routeKey.startsWith("/")) {
-            String withSlash = "/" + routeKey;
-            if (registry.getRoutes().containsKey(withSlash)) {
-                return withSlash;
-            }
-        }
 
-        // Try prefix/unprefix matching with "/V1"
-        if (routeKey.startsWith("/V1/") || routeKey.equals("/V1")) {
-            String unv1 = routeKey.equals("/V1") ? "/" : routeKey.substring(3);
+        // Try unv1 / v1 variants
+        if (upper.startsWith("/V1/") || upper.equals("/V1")) {
+            String unv1 = upper.equals("/V1") ? "/" : upper.substring(3);
             if (registry.getRoutes().containsKey(unv1)) {
                 return unv1;
             }
-            if (unv1.startsWith("/") && unv1.length() > 1) {
-                String stripped = unv1.substring(1);
-                if (registry.getRoutes().containsKey(stripped)) {
-                    return stripped;
-                }
-            }
         } else {
-            String withV1 = "/V1" + (routeKey.startsWith("/") ? routeKey : "/" + routeKey);
+            String withV1 = "/V1" + (upper.startsWith("/") ? upper : "/" + upper);
             if (registry.getRoutes().containsKey(withV1)) {
                 return withV1;
-            }
-            if (withV1.startsWith("/") && withV1.length() > 1) {
-                String stripped = withV1.substring(1);
-                if (registry.getRoutes().containsKey(stripped)) {
-                    return stripped;
-                }
             }
         }
 
