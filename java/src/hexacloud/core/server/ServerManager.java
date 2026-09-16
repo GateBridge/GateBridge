@@ -7,6 +7,7 @@ import java.util.concurrent.CopyOnWriteArrayList;
 
 import hexacloud.core.cluster.Cluster;
 import hexacloud.core.cluster.event.ClusterEventBusManager;
+import hexacloud.core.config.ClusterConfig;
 import hexacloud.core.contracts.ServerOperations;
 import hexacloud.core.server.route.RouteRule;
 import hexacloud.core.server.route.RouteRegistry;
@@ -31,7 +32,7 @@ public class ServerManager implements ServerOperations {
     private boolean httpEnabled = false;
     private boolean wsEnabled = false;
     private boolean tcpProxyEnabled = false;
-    private int port = 3000;
+    private int port = ClusterConfig.DEFAULT_SERVER_PORT;
     private hexacloud.core.server.HttpEngine httpEngine = hexacloud.core.server.HttpEngine.JDK_DEFAULT;
     private hexacloud.core.server.PerformanceProfile performanceProfile = hexacloud.core.server.PerformanceProfile.STANDARD;
     private hexacloud.core.ports.SslContextPort sslContextPort;
@@ -228,15 +229,15 @@ public class ServerManager implements ServerOperations {
                 http = jdkHttp;
             }
             http.setPerformanceProfile(this.performanceProfile);
-            // HTTP runs on port + 1
-            http.listen(port + 1, routeRegistry, clusters, customFilters);
+            // HTTP runs on port + HTTP_PORT_OFFSET
+            http.listen(port + ClusterConfig.HTTP_PORT_OFFSET, routeRegistry, clusters, customFilters);
             activeTransports.add(http);
         }
         
         if(wsEnabled) {
             ServerTransport ws = new WsTransport();
-            // WS runs on port + 2
-            ws.listen(port + 2, routeRegistry, clusters, customFilters);
+            // WS runs on port + WS_PORT_OFFSET
+            ws.listen(port + ClusterConfig.WS_PORT_OFFSET, routeRegistry, clusters, customFilters);
             activeTransports.add(ws);
         }
 

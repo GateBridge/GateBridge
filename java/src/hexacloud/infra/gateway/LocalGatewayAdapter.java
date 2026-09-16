@@ -17,6 +17,7 @@ import hexacloud.core.ports.NodeBuilderPort;
 import hexacloud.core.server.ServerManager;
 import hexacloud.infra.network.ThreadPingScheduler;
 import hexacloud.core.utils.common.DebugUtils;
+import hexacloud.core.config.ClusterConfig;
 import hexacloud.core.config.ClusterStatePersistence;
 import hexacloud.core.cluster.ClusterRegistry;
 import hexacloud.core.server.route.RouteRule;
@@ -28,7 +29,7 @@ class LocalGatewayAdapter implements GatewayBuilderPort, RunningGatewayPort {
     private final ThreadPingScheduler schedulerPing;
     private String activeClusterName;
     private ServerManager serverManager;
-    private int port = 3000;
+    private int port = ClusterConfig.DEFAULT_SERVER_PORT;
     private boolean running = false;
     private String gatewayName;
     private boolean tcpProxyEnabled = false;
