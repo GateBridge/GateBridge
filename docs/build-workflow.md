@@ -77,7 +77,7 @@ When JitPack detects the new tags (`1.0.0.5-beta-jdk8` and `1.0.0.5-beta-jdk21`)
 3. Compiles source with OpenJDK 8
 4. SourceOverlayMojo applies java/src-java8 overlay
 5. Produces JAR with Java 8 bytecode compatibility
-6. Published to: `com.github.watashi-00:GateBridge:1.0.0.5-beta-jdk8`
+6. Published to: `com.github.GateBridge:GateBridge:1.0.0.5-beta-jdk8`
 
 #### For `1.0.0.5-beta-jdk21` tag:
 1. Detects `jdk21` in tag name via `jitpack.yml`
@@ -85,7 +85,7 @@ When JitPack detects the new tags (`1.0.0.5-beta-jdk8` and `1.0.0.5-beta-jdk21`)
 3. Compiles source with OpenJDK 21
 4. SourceOverlayMojo skips overlay (java/src-java8 not applied)
 5. Produces JAR with Java 21 bytecode features
-6. Published to: `com.github.watashi-00:GateBridge:1.0.0.5-beta-jdk21`
+6. Published to: `com.github.GateBridge:GateBridge:1.0.0.5-beta-jdk21`
 
 ---
 
@@ -140,7 +140,7 @@ jdk:
 
 **Note:** JitPack caches builds. To force a rebuild, visit:
 ```
-https://jitpack.io/#com.github.watashi-00/GateBridge
+https://jitpack.io/#com.github.GateBridge/GateBridge
 ```
 and click "Look up" or "Force rebuild" for specific tags.
 
@@ -153,9 +153,9 @@ and click "Look up" or "Force rebuild" for specific tags.
 <sourceDirectory>target/generated-sources/overlay</sourceDirectory>
 
 <plugin>
-    <groupId>com.github.watashi-00</groupId>
+    <groupId>com.github.GateBridge</groupId>
     <artifactId>source-overlay-plugin</artifactId>
-    <version>1.0.3</version>
+    <version>1.0.5</version>
     <executions>
         <execution>
             <phase>generate-sources</phase>

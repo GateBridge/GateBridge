@@ -109,11 +109,11 @@ Instead of the Gateway actively pinging the service node (Pull-based), a service
   
 - **Example Request URL:**
   ```
-  http://localhost:3001/clusters/watashi-00/telemetry?host=localhost&port=3004&cpu=2.5&ram=45.3&language=NodeJS&status=ONLINE
+  http://localhost:3001/clusters/production-cluster/telemetry?host=localhost&port=3004&cpu=2.5&ram=45.3&language=NodeJS&status=ONLINE
   ```
 - **Example Request URL With Custom Event:**
   ```
-  http://localhost:3001/clusters/watashi-00/telemetry?host=localhost&port=3004&event=cache.warmed&protocol=grpc&format=json&detail=products
+  http://localhost:3001/clusters/production-cluster/telemetry?host=localhost&port=3004&event=cache.warmed&protocol=grpc&format=json&detail=products
   ```
 - **Example Response:**
   ```
@@ -148,7 +148,7 @@ To retrieve the real-time telemetry metrics of all registered nodes in a cluster
 - **Headers:** `X-Cluster-Token: <token_secret>`
 - **Example Request URL:**
   ```
-  http://localhost:3001/clusters/watashi-00/get_nodes_json
+  http://localhost:3001/clusters/production-cluster/get_nodes_json
   ```
 - **Example Response (`application/json`):**
   ```json

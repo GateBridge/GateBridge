@@ -233,7 +233,7 @@ graph TD
 ```
 
 **Showcase Application Custom Routes and Listeners Flow:**
-This diagram illustrates the custom event listeners and custom routes defined in the reference [MinimalApplication.java](file:///home/watashi/Projects/Java-framework/gatebridge/gatebridge/java/src/hexacloud/application/MinimalApplication.java) showcase:
+This diagram illustrates the custom event listeners and custom routes defined in the reference [MinimalApplication.java](java/src/hexacloud/application/MinimalApplication.java) showcase:
 
 ```mermaid
 graph TD
@@ -489,7 +489,7 @@ An interactive command center for cluster operations:
 * `java/src/hexacloud/application/TerminalMain.java` — Bootstraps a gateway and starts the interactive DevOps Panel.
 * `java/src/hexacloud/core/ports/` — Declares clean segregation boundaries: `GatewayBuilderPort` (configuration) and `RunningGatewayPort` (runtime control).
 * `java/src/hexacloud/core/tui/` — Subsystem for rendering, key handling, and input scanner loops.
-* `java/src/hexacloud/core/utils/ThreadManager.java` — Core virtual thread wrapper class.
+* `java/src/hexacloud/core/utils/concurrent/ThreadManager.java` — Core virtual thread wrapper class.
 
 ---
 
@@ -519,8 +519,8 @@ Review the detailed module guides:
 
 ## License
 
-This project is licensed under the MIT License. See [LICENSE](https://www.google.com/search?q=LICENSE).
+This project is licensed under the MIT License. See [LICENSE](LICENSE).
 
 ---
 
-Created and maintained by watashi-00 (watashi00 | Rodrigo).
+Created and maintained by the GateBridge Open Source Team (watashi00 | Rodrigo).
