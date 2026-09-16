@@ -1,0 +1,85 @@
+name: Release & Deployment
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag-name:
+        description: 'Release tag name (e.g. v1.5.0)'
+        required: false
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Validate and Publish Release
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/master' || startsWith(github.ref, 'refs/tags/v')
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+
+      - name: Validate build and test suite
+        run: mvn -B clean verify
+
+      - name: Compute Release Version
+        id: version
+        run: |
+          RAW_VERSION=$(mvn help:evaluate -Dexpression=project.version -q -DforceStdout)
+          echo "version=${RAW_VERSION}" >> $GITHUB_OUTPUT
+
+      - name: Trigger and Poll JitPack Build Log
+        env:
+          REPO: ${{ github.repository }}
+          TAG: ${{ steps.version.outputs.version }}
+        run: |
+          URL="https://jitpack.io/com/github/${REPO}/${TAG}/build.log"
+          echo "Initiating JitPack build request for ${REPO} tag ${TAG}..."
+          curl -s -L "$URL" > /dev/null || true
+          
+          echo "Initial 20 seconds warmup delay..."
+          sleep 20
+          
+          MAX_ATTEMPTS=20
+          DELAY=15
+          SUCCESS=false
+          
+          for i in $(seq 1 $MAX_ATTEMPTS); do
+            echo "Checking JitPack status (Attempt $i/$MAX_ATTEMPTS)..."
+            HTTP_CODE=$(curl -s -o /tmp/jitpack_build.log -w "%{http_code}" -L "$URL") || HTTP_CODE=000
+            
+            if [ "$HTTP_CODE" = "200" ]; then
+              if grep -q "BUILD SUCCESS" /tmp/jitpack_build.log; then
+                echo "JitPack build completed successfully."
+                SUCCESS=true
+                break
+              fi
+            fi
+            
+            echo "Build pending (HTTP $HTTP_CODE). Retrying in ${DELAY}s..."
+            sleep $DELAY
+          done
+          
+          if [ "$SUCCESS" = "false" ]; then
+            echo "Warning: JitPack build did not confirm completion within timeout window."
+          fi
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: Release ${{ github.ref_name }}
+          generate_release_notes: true
