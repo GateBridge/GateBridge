@@ -60,7 +60,8 @@ git commit -m "docs(api): update reverse proxy routing protocol spec"
 
 ## 3. Pull Request & Merge Policy
 
-1. **Pull Requests Required**: All changes must enter `master` via a Pull Request.
-2. **Review & Status Checks**: Every PR must receive at least one maintainer review approval and pass all CI automated build/test checks.
-3. **Squash and Merge**: Merges to `master` are executed using **Squash and Merge** to maintain a clean, single-commit-per-feature history on `master`.
-4. **Branch Cleanup**: Delete topic branches immediately after a successful merge.
+1. **Contributor Pull Requests Target `dev`**: All contributor feature and bugfix Pull Requests MUST target the `dev` branch.
+2. **Review & Status Checks**: Every PR must pass all automated CI build/test checks (`ci.yml`) and receive maintainer approval before merging into `dev`.
+3. **Squash and Merge**: Feature PRs merged into `dev` use **Squash and Merge** to maintain a clean linear development log.
+4. **Release Promotion (`dev` -> `master`)**: Maintainers promote integrated changes from `dev` to `master` prior to releasing. Tagging a release commit on `master` (e.g. `v1.5.0`) triggers the automated release deployment (`release.yml`).
+5. **Branch Cleanup**: Topic branches should be deleted immediately after merging into `dev`.

@@ -26,11 +26,13 @@ Before building or contributing code, ensure your local development environment 
 Before writing code, check the GitHub Issue tracker. If no issue exists for your bug report or feature request, please open a new issue using the appropriate template.
 
 ### 2. Set Up Local Environment & Branch
-Clone the repository and create your topic branch off `master`:
+Clone the repository and create your topic branch off `dev`:
 
 ```bash
 git clone https://github.com/GateBridge/GateBridge.git
 cd GateBridge
+git checkout dev
+git pull origin dev
 git checkout -b feat/your-feature-name
 ```
 
@@ -59,7 +61,7 @@ git push origin feat/your-feature-name
 ```
 
 ### 6. Create a Pull Request
-Open a Pull Request targeting `master`. Fill out the [PR Template](.github/PULL_REQUEST_TEMPLATE.md) completely, referencing relevant issue numbers.
+Open a Pull Request targeting the **`dev`** branch. Fill out the [PR Template](.github/PULL_REQUEST_TEMPLATE.md) completely, referencing relevant issue numbers. Maintains and automated CI will test your PR before merging into `dev`.
 
 ---
 
