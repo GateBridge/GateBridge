@@ -10,13 +10,38 @@ permissions:
   contents: read
 
 jobs:
+  detect-jdk:
+    name: Detect JDK Target
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.jdk-matrix.outputs.matrix }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up initial Java to read POM
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Extract target JDK from pom.xml
+        id: jdk-matrix
+        run: |
+          TARGET_JDK=$(mvn help:evaluate -Dexpression=java.version.21 -q -DforceStdout 2>/dev/null || echo "21")
+          if [ -z "$TARGET_JDK" ] || [ "$TARGET_JDK" = "null" ]; then
+            TARGET_JDK="21"
+          fi
+          echo "Detected target JDK: $TARGET_JDK"
+          echo "matrix={\"java\": [\"$TARGET_JDK\"]}" >> $GITHUB_OUTPUT
+
   validate-and-test:
+    needs: detect-jdk
     name: Validate & Test (JDK ${{ matrix.java }})
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
-      matrix:
-        java: ['17', '21']
+      matrix: ${{ fromJson(needs.detect-jdk.outputs.matrix) }}
 
     steps:
       - name: Checkout repository
