@@ -6,10 +6,11 @@ Welcome to the **GateBridge Core Framework** branching and commit standards guid
 
 ## 1. Branching Model
 
-GateBridge uses a simplified **GitHub Flow** model:
+GateBridge uses an active **Development & Release Branching** model:
 
-- **`master`**: The main protected branch containing production-ready code. Direct pushes to `master` are strictly prohibited.
-- **Feature & Fix Branches**: All work is performed on dedicated topic branches created off `master`.
+- **`master`**: Production-ready protected branch. Contains tagged stable releases. Direct pushes to `master` are strictly prohibited.
+- **`dev`**: Active integration branch for incoming feature and fix Pull Requests. Prevents constant unneeded release triggers on `master`.
+- **Feature & Fix Branches**: All work is performed on dedicated topic branches created off `dev`. Pull Requests target `dev` first.
 
 ### Branch Naming Conventions
 
