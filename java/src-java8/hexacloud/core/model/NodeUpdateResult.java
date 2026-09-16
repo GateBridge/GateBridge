@@ -7,12 +7,14 @@ public final class NodeUpdateResult {
     private final String protocol;
     private final boolean statusChanged;
     private final boolean telemetryUpdated;
+    private final String nodeId;
 
-    public NodeUpdateResult(String host, String protocol, boolean statusChanged, boolean telemetryUpdated) {
+    public NodeUpdateResult(String host, String protocol, boolean statusChanged, boolean telemetryUpdated, String nodeId) {
         this.host = host;
         this.protocol = protocol;
         this.statusChanged = statusChanged;
         this.telemetryUpdated = telemetryUpdated;
+        this.nodeId = nodeId;
     }
 
     public String host() {
@@ -31,6 +33,10 @@ public final class NodeUpdateResult {
         return telemetryUpdated;
     }
 
+    public String nodeId() {
+        return nodeId;
+    }
+
     @Override
     public boolean equals(Object o) {
         if (this == o) return true;
@@ -39,17 +45,18 @@ public final class NodeUpdateResult {
         return statusChanged == that.statusChanged &&
                 telemetryUpdated == that.telemetryUpdated &&
                 Objects.equals(host, that.host) &&
-                Objects.equals(protocol, that.protocol);
+                Objects.equals(protocol, that.protocol) &&
+                Objects.equals(nodeId, that.nodeId);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(host, protocol, statusChanged, telemetryUpdated);
+        return Objects.hash(host, protocol, statusChanged, telemetryUpdated, nodeId);
     }
 
     @Override
     public String toString() {
         return "NodeUpdateResult[host=" + host + ", protocol=" + protocol +
-                ", statusChanged=" + statusChanged + ", telemetryUpdated=" + telemetryUpdated + "]";
+                ", statusChanged=" + statusChanged + ", telemetryUpdated=" + telemetryUpdated + ", nodeId=" + nodeId + "]";
     }
 }
