@@ -6,18 +6,18 @@ Welcome to the comprehensive architecture guide for **GateBridge**. This documen
 
 ## Table of Contents
 
-1. [System Overview & Engineering Philosophy](#1-system-overview-engineering-philosophy)
+1. [System Overview & Engineering Philosophy](#1-system-overview--engineering-philosophy)
    - [High-Performance Lightweight Gateway](#high-performance-lightweight-gateway)
    - [Loom Concurrency vs. Legacy Thread Pools](#loom-concurrency-vs-legacy-thread-pools)
    - [Hexagonal Ports-and-Adapters Architecture](#hexagonal-ports-and-adapters-architecture)
-2. [Repository & Ecosystem Topology](#2-repository-ecosystem-topology)
+2. [Repository & Ecosystem Topology](#2-repository--ecosystem-topology)
    - [Ecosystem Topology Diagram](#ecosystem-topology-diagram)
    - [Core Open Source Framework (`GateBridge/GateBridge`)](#core-open-source-framework-gatebridgegatebridge)
    - [Enterprise Extensions (`GateBridge/gatebridge-enterprise`)](#enterprise-extensions-gatebridgegatebridge-enterprise)
-3. [Layered Architecture & Component Breakdown](#3-layered-architecture-component-breakdown)
+3. [Layered Architecture & Component Breakdown](#3-layered-architecture--component-breakdown)
    - [Layered System Architecture Diagram](#layered-system-architecture-diagram)
    - [Detailed Component Roles](#detailed-component-roles)
-4. [Request & Connection Lifecycles](#4-request-connection-lifecycles)
+4. [Request & Connection Lifecycles](#4-request--connection-lifecycles)
    - [Layer 7 HTTP Reverse Proxy Lifecycle](#layer-7-http-reverse-proxy-lifecycle)
    - [Layer 4 Raw TCP Proxy Tunneling Lifecycle](#layer-4-raw-tcp-proxy-tunneling-lifecycle)
    - [Telnet Command Execution Lifecycle](#telnet-command-execution-lifecycle)
@@ -31,13 +31,13 @@ Welcome to the comprehensive architecture guide for **GateBridge**. This documen
    - [TUI Subsystem Decomposition](#tui-subsystem-decomposition)
    - [Event-Driven Screen Redraw Model](#event-driven-screen-redraw-model)
    - [Real-Time OS Thread Classification (App vs. Daemon)](#real-time-os-thread-classification-app-vs-daemon)
-   - [System.out/System.err Redirection & Toggle Mode](#systemoutsystemerr-redirection-toggle-mode)
-   - [Native JNI & Platform Portability Hierarchy](#native-jni-platform-portability-hierarchy)
+   - [System.out/System.err Redirection & Toggle Mode](#systemoutsystemerr-redirection--toggle-mode)
+   - [Native JNI & Platform Portability Hierarchy](#native-jni--platform-portability-hierarchy)
 7. [Multi-JDK Source Overlay Build System](#7-multi-jdk-source-overlay-build-system)
    - [Cascading Version Inheritance Architecture](#cascading-version-inheritance-architecture)
    - [Build Pipeline Flow](#build-pipeline-flow)
    - [Bytecode Verification](#bytecode-verification)
-8. [Contributor Architecture Rules & Standards](#8-contributor-architecture-rules-standards)
+8. [Contributor Architecture Rules & Standards](#8-contributor-architecture-rules--standards)
    - [Zero Magic Numbers Rule](#zero-magic-numbers-rule)
    - [Non-Blocking Loom Execution Standards](#non-blocking-loom-execution-standards)
    - [Clean Port Interface Decoupling](#clean-port-interface-decoupling)
@@ -75,7 +75,7 @@ When a task performs a blocking operation (such as `InputStream.read()`, `Socket
 
 GateBridge strictly enforces the **Ports-and-Adapters (Hexagonal) Architectural Pattern**. The core business domain never depends on concrete network runtimes or external third-party libraries.
 
-```
+```text
        +-----------------------------------------------------------+
        |                   Driving / Ingress Ports                 |
        |  GatewayBuilderPort   RunningGatewayPort   TerminalUiPort  |
@@ -326,7 +326,7 @@ sequenceDiagram
 
     RPS->>EB: updateTelemetryServer(cpu=24%, latency=12ms)
     RPS->>Client: Stream Response Body (8KB Bounded Buffer Pool)
-    Note over RPS, Client: Connection complete; buffer recycled to pool
+    Note over RPS, Client: Connection complete - buffer recycled to pool
 ```
 
 #### Step-by-Step Breakdown:
@@ -410,7 +410,7 @@ sequenceDiagram
 
 Project Loom introduces **Virtual Threads** (managed entirely in heap memory by the Java Virtual Machine) running on top of a small pool of **Platform Carrier Threads** (managed by the operating system kernel).
 
-```
+```text
 +-----------------------------------------------------------------------+
 |                       JVM Heap Virtual Threads                        |
 |  [HTTP Worker 1]   [HTTP Worker 2]   [TCP Tunnel 1]   [Ping Worker]   |
@@ -432,7 +432,7 @@ Project Loom introduces **Virtual Threads** (managed entirely in heap memory by 
 
 In standard deployment benchmarks, GateBridge maintains a deterministic OS platform thread footprint. Even when serving hundreds of active WebSocket connections, scheduling dozens of node health checks, and proxying HTTP traffic, the operating system thread monitor reveals **exactly 9 OS platform threads**:
 
-```
+```text
 Total OS Threads: 9
 ├── Base JVM Runtime Threads (6)
 │   ├── main (JVM bootstrap thread)
@@ -456,7 +456,7 @@ All concurrency throughout GateBridge is routed through the centralized utility 
 ```java
 package hexacloud.core.utils.concurrent;
 
-public final class ThreadManager {
+public class ThreadManager {
 
     // Spawns an anonymous virtual thread
     public static Thread startVirtual(Runnable task);
@@ -467,11 +467,14 @@ public final class ThreadManager {
     // Creates an unbounded virtual thread executor (one thread per task)
     public static ExecutorService newVirtualThreadPool();
 
+    // Creates a virtual thread factory with a naming prefix
+    public static ThreadFactory virtualThreadFactory(String namePrefix);
+
     // Creates a virtual-thread-backed scheduled executor
     public static ScheduledExecutorService newScheduledThreadPool(int corePoolSize, String namePrefix);
 
-    // Gracefully terminates an executor service with timeout
-    public static void shutdown(ExecutorService executor, long timeoutMs);
+    // Low-overhead busy-wait hint to the JVM
+    public static void spinWait();
 }
 ```
 
@@ -495,7 +498,7 @@ public final class ThreadManager {
 
 The DevOps Terminal UI is an interactive, ANSI-driven dashboard providing real-time telemetry, live thread categorization, cluster configuration, and log inspection directly from the terminal console.
 
-```
+```text
 +=============================================================================+
 | GateBridge Control Plane [DevOps Console]                Status: ONLINE     |
 +=============================================================================+
@@ -520,7 +523,7 @@ The DevOps Terminal UI is an interactive, ANSI-driven dashboard providing real-t
 
 The TUI subsystem is modularly partitioned into isolated components:
 
-```
+```text
 hexacloud.core.tui
 ├── TerminalUI.java              -> Main coordinator, life cycle & semaphore loop
 ├── TerminalUiFactory.java       -> Fluent builder configuring TUI permissions
@@ -597,7 +600,7 @@ This provides real-time visibility into thread leakage and confirms that Loom vi
 
 The TUI keystroke reading and cursor rendering utilizes a 3-tier fallback hierarchy:
 
-```
+```text
 Tier 1: Native JNI Mode (libhexaterminal.so / .dylib / .dll)
    │  Direct OS ioctl / tcsetattr / GetConsoleScreenBufferInfo calls
    ▼ (If native library missing)
