@@ -2,8 +2,9 @@ package hexacloud.core.server;
 
 import java.util.ArrayList;
 import java.util.List;
-
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 
 import hexacloud.core.cluster.Cluster;
 import hexacloud.core.cluster.event.ClusterEventBusManager;
@@ -14,6 +15,7 @@ import hexacloud.core.server.route.RouteRule;
 import hexacloud.core.server.route.RouteRegistry;
 import hexacloud.core.server.route.ClusterController;
 import hexacloud.core.utils.common.DebugUtils;
+import hexacloud.core.utils.concurrent.ThreadManager;
 import hexacloud.infra.server.HttpTransport;
 import hexacloud.infra.server.UndertowHttpTransport;
 import hexacloud.infra.server.TcpProxyTransport;
@@ -29,6 +31,7 @@ public class ServerManager implements ServerOperations {
     private final List<hexacloud.core.server.filter.HttpFilter> customFilters = new CopyOnWriteArrayList<>();
     private final List<RouteRule> routeRules = new CopyOnWriteArrayList<>();
     private final ConnectionRegistry connectionRegistry = new ConnectionRegistry();
+    private ScheduledExecutorService sweeper;
     
     private boolean telnetEnabled = false;
     private boolean httpEnabled = false;
@@ -217,6 +220,11 @@ public class ServerManager implements ServerOperations {
         // Stop any running transports before starting new ones
         stopTransports();
 
+        if (sweeper == null || sweeper.isShutdown()) {
+            sweeper = ThreadManager.newScheduledThreadPool(1, "ConnectionCleaner");
+            sweeper.scheduleAtFixedRate(() -> connectionRegistry.reclaimIdleConnections(tcpSoTimeout), 10, 10, TimeUnit.SECONDS);
+        }
+
         if(telnetEnabled) {
             ServerTransport telnet = new TelnetTransport();
             telnet.setConnectionRegistry(this.connectionRegistry);
@@ -286,6 +294,10 @@ public class ServerManager implements ServerOperations {
         }
         activeTransports.clear();
         connectionRegistry.closeAll();
+        if (sweeper != null && !sweeper.isShutdown()) {
+            sweeper.shutdownNow();
+            sweeper = null;
+        }
     }
 
     /**

@@ -154,7 +154,7 @@ public class TelnetTransport implements ServerTransport {
             handler.accept(args, out);
             DebugUtils.info("Telnet: Successfully completed request handler for command '" + command + "'");
             
-        } catch(IOException ex) {
+        } catch(Exception ex) {
             if (connectionRegistry != null && ctx != null) {
                 connectionRegistry.notifyError(ctx, ex);
             }

@@ -221,6 +221,60 @@ public class ConnectionLifecycleIntegrationTest {
     }
 
     @Test
+    public void testHttpConnectionLifecycleIntegration() throws Exception {
+        serverManager.enableHttp(true);
+        serverManager.registerRouteController(new TestPingController());
+
+        List<ConnectionContext> connectedList = new CopyOnWriteArrayList<>();
+        List<ConnectionContext> disconnectedList = new CopyOnWriteArrayList<>();
+        CountDownLatch connectLatch = new CountDownLatch(1);
+        CountDownLatch disconnectLatch = new CountDownLatch(1);
+
+        ConnectionRegistry registry = serverManager.getConnectionRegistry();
+        registry.addLifecycleListener(new ConnectionLifecycleListener() {
+            @Override
+            public void onConnect(ConnectionContext context) {
+                connectedList.add(context);
+                connectLatch.countDown();
+            }
+
+            @Override
+            public void onHeartbeat(ConnectionContext context) {}
+
+            @Override
+            public void onDisconnect(ConnectionContext context) {
+                disconnectedList.add(context);
+                disconnectLatch.countDown();
+            }
+
+            @Override
+            public void onError(ConnectionContext context, Throwable cause) {}
+        });
+
+        int basePort = findFreePort();
+        serverManager.listen(basePort);
+        Thread.sleep(100);
+
+        int httpPort = basePort + ClusterConfig.HTTP_PORT_OFFSET;
+        java.net.http.HttpClient client = java.net.http.HttpClient.newHttpClient();
+        java.net.http.HttpRequest req = java.net.http.HttpRequest.newBuilder()
+                .uri(java.net.URI.create("http://127.0.0.1:" + httpPort + "/V1/GET_NODES_JSON"))
+                .GET()
+                .build();
+
+        java.net.http.HttpResponse<String> resp = client.send(req, java.net.http.HttpResponse.BodyHandlers.ofString());
+        assertEquals(200, resp.statusCode());
+
+        assertTrue(connectLatch.await(3, TimeUnit.SECONDS), "onConnect callback should fire for HTTP");
+        assertTrue(disconnectLatch.await(3, TimeUnit.SECONDS), "onDisconnect callback should fire for HTTP when request completes");
+        assertEquals(1, connectedList.size());
+        assertEquals("HTTP", connectedList.get(0).getProtocol());
+        assertEquals(1, disconnectedList.size());
+        assertEquals("HTTP", disconnectedList.get(0).getProtocol());
+        assertEquals(0, registry.getActiveConnectionCount());
+    }
+
+    @Test
     public void testServerManagerStopClosesActiveConnections() {
         ConnectionRegistry registry = serverManager.getConnectionRegistry();
         ConnectionContext mockContext = new ConnectionContextImpl("test-id-1", "TCP", "127.0.0.1:12345");

@@ -6,6 +6,8 @@ import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.function.BiConsumer;
 
+import java.util.UUID;
+
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpHandler;
 import com.sun.net.httpserver.HttpServer;
@@ -13,6 +15,9 @@ import com.sun.net.httpserver.HttpServer;
 import hexacloud.core.cluster.Cluster;
 import hexacloud.core.cluster.ClusterRegistry;
 import hexacloud.core.server.ServerTransport;
+import hexacloud.core.server.connection.ConnectionContext;
+import hexacloud.core.server.connection.ConnectionContextImpl;
+import hexacloud.core.server.connection.ConnectionRegistry;
 import hexacloud.core.server.filter.HttpFilter;
 import hexacloud.core.server.filter.HttpFilterChainImpl;
 import hexacloud.core.server.filter.HttpRequest;
@@ -39,10 +44,16 @@ public class HttpTransport implements ServerTransport {
 
     private HttpServer server;
     private boolean running = false;
+    private ConnectionRegistry connectionRegistry;
     private final HttpErrorHandler errorHandler = new DefaultHttpErrorHandler();
     private final ReverseProxyService reverseProxyService = new ReverseProxyService(new hexacloud.core.utils.network.JdkHttpProxyClient(), errorHandler);
 
     private hexacloud.core.server.PerformanceProfile performanceProfile = hexacloud.core.server.PerformanceProfile.STANDARD;
+
+    @Override
+    public void setConnectionRegistry(ConnectionRegistry registry) {
+        this.connectionRegistry = registry;
+    }
     private final List<HttpFilter> activeFilters = new CopyOnWriteArrayList<>();
     private hexacloud.core.ports.SslContextPort sslContextPort;
 
@@ -105,75 +116,90 @@ public class HttpTransport implements ServerTransport {
             server.createContext("/", new HttpHandler() {
                 @Override
                 public void handle(HttpExchange exchange) throws IOException {
-                    // CORS Configuration
-                    exchange.getResponseHeaders().set("Access-Control-Allow-Origin", "*");
-                    exchange.getResponseHeaders().set("Access-Control-Allow-Methods", "GET, POST, OPTIONS, PUT, DELETE");
-                    exchange.getResponseHeaders().set("Access-Control-Allow-Headers", "X-Cluster-Token, Content-Type, Authorization");
-
-                    if ("OPTIONS".equals(exchange.getRequestMethod())) {
-                        exchange.sendResponseHeaders(204, -1);
-                        return;
+                    ConnectionContext ctx = null;
+                    if (connectionRegistry != null) {
+                        String remoteAddr = exchange.getRemoteAddress() != null
+                                ? exchange.getRemoteAddress().toString()
+                                : "unknown";
+                        ctx = new ConnectionContextImpl(UUID.randomUUID().toString(), "HTTP", remoteAddr);
+                        connectionRegistry.registerConnection(ctx);
                     }
 
                     try {
-                        String path = exchange.getRequestURI().getPath();
-                        RouteResolution resolution = PathResolver.resolve(path, exchange.getRequestHeaders().getFirst("Host"), registry);
-                        boolean canUseFastPath = resolution.isLocal() 
-                                && registry.isRouteFastPath(resolution.localRouteName())
-                                && (activeFilters.isEmpty() || (activeFilters.size() == 1 && activeFilters.get(0) instanceof CorsFilter));
+                        // CORS Configuration
+                        exchange.getResponseHeaders().set("Access-Control-Allow-Origin", "*");
+                        exchange.getResponseHeaders().set("Access-Control-Allow-Methods", "GET, POST, OPTIONS, PUT, DELETE");
+                        exchange.getResponseHeaders().set("Access-Control-Allow-Headers", "X-Cluster-Token, Content-Type, Authorization");
 
-                        if (canUseFastPath) {
-                            BiConsumer<String, PrintWriter> handler = registry.getRoutes().get(resolution.localRouteName());
-                            if (handler != null) {
-                                if (resolution.localRouteName().equals("/V1/GET_NODES_JSON")) {
-                                    exchange.getResponseHeaders().set("Content-Type", "application/json");
-                                } else {
-                                    exchange.getResponseHeaders().set("Content-Type", "text/plain");
-                                }
-                                exchange.sendResponseHeaders(200, 0);
-                                try (PrintWriter out = new PrintWriter(new java.io.BufferedWriter(new java.io.OutputStreamWriter(exchange.getResponseBody(), java.nio.charset.StandardCharsets.UTF_8)))) {
-                                    String query = exchange.getRequestURI().getQuery();
-                                    String args = query != null ? query : "";
-                                    handler.accept(args, out);
-                                }
-                                return;
-                            }
-                        }
-                        HttpRequestImpl req = new HttpRequestImpl(exchange);
-                        HttpResponseImpl res = new HttpResponseImpl(exchange);
-
-                        // Inline default CorsFilter optimization
-                        if (activeFilters.size() == 1 && activeFilters.get(0) instanceof CorsFilter) {
-                            res.setHeader("Access-Control-Allow-Origin", "*");
-                            res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS, PUT, DELETE");
-                            res.setHeader("Access-Control-Allow-Headers", "X-Cluster-Token, Content-Type, Authorization");
-
-                            if ("OPTIONS".equalsIgnoreCase(req.getMethod())) {
-                                res.setStatus(204);
-                                return;
-                            }
-
-                            executeRoute(req, res, resolution, registry);
+                        if ("OPTIONS".equals(exchange.getRequestMethod())) {
+                            exchange.sendResponseHeaders(204, -1);
                             return;
                         }
 
-                        BiConsumer<HttpRequest, HttpResponse> routeHandler = (r, s) -> {
-                            try {
-                                executeRoute(r, s, resolution, registry);
-                            } catch (Exception e) {
-                                throw new RuntimeException(e);
-                            }
-                        };
-
-                        HttpFilterChainImpl chain = new HttpFilterChainImpl(activeFilters, routeHandler);
-                        chain.doFilter(req, res);
-
-                    } catch (Exception e) {
-                        DebugUtils.error("HttpTransport: Exception caught in filter chain pipeline: " + e.getMessage(), e);
                         try {
+                            String path = exchange.getRequestURI().getPath();
+                            RouteResolution resolution = PathResolver.resolve(path, exchange.getRequestHeaders().getFirst("Host"), registry);
+                            boolean canUseFastPath = resolution.isLocal() 
+                                    && registry.isRouteFastPath(resolution.localRouteName())
+                                    && (activeFilters.isEmpty() || (activeFilters.size() == 1 && activeFilters.get(0) instanceof CorsFilter));
+
+                            if (canUseFastPath) {
+                                BiConsumer<String, PrintWriter> handler = registry.getRoutes().get(resolution.localRouteName());
+                                if (handler != null) {
+                                    if (resolution.localRouteName().equals("/V1/GET_NODES_JSON")) {
+                                        exchange.getResponseHeaders().set("Content-Type", "application/json");
+                                    } else {
+                                        exchange.getResponseHeaders().set("Content-Type", "text/plain");
+                                    }
+                                    exchange.sendResponseHeaders(200, 0);
+                                    try (PrintWriter out = new PrintWriter(new java.io.BufferedWriter(new java.io.OutputStreamWriter(exchange.getResponseBody(), java.nio.charset.StandardCharsets.UTF_8)))) {
+                                        String query = exchange.getRequestURI().getQuery();
+                                        String args = query != null ? query : "";
+                                        handler.accept(args, out);
+                                    }
+                                    return;
+                                }
+                            }
+                            HttpRequestImpl req = new HttpRequestImpl(exchange);
                             HttpResponseImpl res = new HttpResponseImpl(exchange);
-                            errorHandler.handleException(res, e);
-                        } catch (Exception ignored) {}
+
+                            // Inline default CorsFilter optimization
+                            if (activeFilters.size() == 1 && activeFilters.get(0) instanceof CorsFilter) {
+                                res.setHeader("Access-Control-Allow-Origin", "*");
+                                res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS, PUT, DELETE");
+                                res.setHeader("Access-Control-Allow-Headers", "X-Cluster-Token, Content-Type, Authorization");
+
+                                if ("OPTIONS".equalsIgnoreCase(req.getMethod())) {
+                                    res.setStatus(204);
+                                    return;
+                                }
+
+                                executeRoute(req, res, resolution, registry);
+                                return;
+                            }
+
+                            BiConsumer<HttpRequest, HttpResponse> routeHandler = (r, s) -> {
+                                try {
+                                    executeRoute(r, s, resolution, registry);
+                                } catch (Exception e) {
+                                    throw new RuntimeException(e);
+                                }
+                            };
+
+                            HttpFilterChainImpl chain = new HttpFilterChainImpl(activeFilters, routeHandler);
+                            chain.doFilter(req, res);
+
+                        } catch (Exception e) {
+                            DebugUtils.error("HttpTransport: Exception caught in filter chain pipeline: " + e.getMessage(), e);
+                            try {
+                                HttpResponseImpl res = new HttpResponseImpl(exchange);
+                                errorHandler.handleException(res, e);
+                            } catch (Exception ignored) {}
+                        }
+                    } finally {
+                        if (connectionRegistry != null && ctx != null) {
+                            connectionRegistry.unregisterConnection(ctx);
+                        }
                     }
                 }
             });
