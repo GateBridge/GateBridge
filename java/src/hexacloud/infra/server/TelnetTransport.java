@@ -6,12 +6,16 @@ import java.io.InputStreamReader;
 import java.io.PrintWriter;
 import java.net.ServerSocket;
 import java.net.Socket;
+import java.util.UUID;
 import java.util.concurrent.ExecutorService;
 import java.util.function.BiConsumer;
 import java.util.List;
 import hexacloud.core.server.filter.HttpFilter;
 
 import hexacloud.core.server.ServerTransport;
+import hexacloud.core.server.connection.ConnectionContext;
+import hexacloud.core.server.connection.ConnectionContextImpl;
+import hexacloud.core.server.connection.ConnectionRegistry;
 import hexacloud.core.server.route.RouteRegistry;
 import hexacloud.core.utils.common.DebugUtils;
 import hexacloud.core.utils.concurrent.ThreadManager;
@@ -25,7 +29,13 @@ public class TelnetTransport implements ServerTransport {
     private boolean clusterActive = true;
     private ServerSocket serverSocket;
     private boolean running = false;
+    private ConnectionRegistry connectionRegistry;
     private final ExecutorService threadPool = ThreadManager.newVirtualThreadPool();
+
+    @Override
+    public void setConnectionRegistry(ConnectionRegistry registry) {
+        this.connectionRegistry = registry;
+    }
 
     @Override
     public void listen(int port, RouteRegistry registry, java.util.List<hexacloud.core.cluster.Cluster> clusters, List<HttpFilter> customFilters) {
@@ -52,12 +62,33 @@ public class TelnetTransport implements ServerTransport {
     }
 
     private void conn(Socket socket, RouteRegistry registry, hexacloud.core.cluster.Cluster cluster) {
-        try{
+        ConnectionContext ctx = null;
+        if (connectionRegistry != null) {
+            String remoteAddr = socket.getRemoteSocketAddress() != null
+                    ? socket.getRemoteSocketAddress().toString()
+                    : (socket.getInetAddress() != null ? socket.getInetAddress().getHostAddress() : "unknown");
+            ctx = new ConnectionContextImpl(
+                    UUID.randomUUID().toString(),
+                    "TELNET",
+                    remoteAddr,
+                    () -> {
+                        try {
+                            socket.close();
+                        } catch (IOException ignored) {}
+                    }
+            );
+            connectionRegistry.registerConnection(ctx);
+        }
+
+        try {
             BufferedReader in = new BufferedReader(new InputStreamReader(socket.getInputStream()));
             PrintWriter out = new PrintWriter(socket.getOutputStream(), true);
             String clientIp = socket.getInetAddress().getHostAddress();
 
             String line = in.readLine();
+            if (connectionRegistry != null && ctx != null && line != null) {
+                connectionRegistry.touchConnection(ctx);
+            }
             if(line == null || line.trim().isEmpty()) {
                 DebugUtils.info("Telnet received empty connection request from " + socket.getRemoteSocketAddress());
                 return;
@@ -124,8 +155,14 @@ public class TelnetTransport implements ServerTransport {
             DebugUtils.info("Telnet: Successfully completed request handler for command '" + command + "'");
             
         } catch(IOException ex) {
+            if (connectionRegistry != null && ctx != null) {
+                connectionRegistry.notifyError(ctx, ex);
+            }
             DebugUtils.error("Failed to process request from client", ex);
         } finally {
+            if (connectionRegistry != null && ctx != null) {
+                connectionRegistry.unregisterConnection(ctx);
+            }
             try {
                 socket.close();
             } catch(IOException ex) {

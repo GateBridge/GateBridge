@@ -9,6 +9,7 @@ import hexacloud.core.cluster.Cluster;
 import hexacloud.core.cluster.event.ClusterEventBusManager;
 import hexacloud.core.config.ClusterConfig;
 import hexacloud.core.contracts.ServerOperations;
+import hexacloud.core.server.connection.ConnectionRegistry;
 import hexacloud.core.server.route.RouteRule;
 import hexacloud.core.server.route.RouteRegistry;
 import hexacloud.core.server.route.ClusterController;
@@ -27,6 +28,7 @@ public class ServerManager implements ServerOperations {
     private final List<ServerTransport> activeTransports = new ArrayList<>();
     private final List<hexacloud.core.server.filter.HttpFilter> customFilters = new CopyOnWriteArrayList<>();
     private final List<RouteRule> routeRules = new CopyOnWriteArrayList<>();
+    private final ConnectionRegistry connectionRegistry = new ConnectionRegistry();
     
     private boolean telnetEnabled = false;
     private boolean httpEnabled = false;
@@ -204,6 +206,10 @@ public class ServerManager implements ServerOperations {
         return customFilters;
     }
 
+    public ConnectionRegistry getConnectionRegistry() {
+        return connectionRegistry;
+    }
+
     @Override
     public ServerManager listen(int port) {
         DebugUtils.info("ServerManager: Starting authorized protocol listeners on base port " + port + "...");
@@ -213,6 +219,7 @@ public class ServerManager implements ServerOperations {
 
         if(telnetEnabled) {
             ServerTransport telnet = new TelnetTransport();
+            telnet.setConnectionRegistry(this.connectionRegistry);
             telnet.listen(port, routeRegistry, clusters, customFilters);
             activeTransports.add(telnet);
         }
@@ -229,6 +236,7 @@ public class ServerManager implements ServerOperations {
                 http = jdkHttp;
             }
             http.setPerformanceProfile(this.performanceProfile);
+            http.setConnectionRegistry(this.connectionRegistry);
             // HTTP runs on port + HTTP_PORT_OFFSET
             http.listen(port + ClusterConfig.HTTP_PORT_OFFSET, routeRegistry, clusters, customFilters);
             activeTransports.add(http);
@@ -236,6 +244,7 @@ public class ServerManager implements ServerOperations {
         
         if(wsEnabled) {
             ServerTransport ws = new WsTransport();
+            ws.setConnectionRegistry(this.connectionRegistry);
             // WS runs on port + WS_PORT_OFFSET
             ws.listen(port + ClusterConfig.WS_PORT_OFFSET, routeRegistry, clusters, customFilters);
             activeTransports.add(ws);
@@ -245,6 +254,7 @@ public class ServerManager implements ServerOperations {
             TcpProxyTransport tcpProxy = new TcpProxyTransport();
             tcpProxy.setSoTimeout(this.tcpSoTimeout);
             tcpProxy.setKeepAlive(this.tcpKeepAlive);
+            tcpProxy.setConnectionRegistry(this.connectionRegistry);
             // TCP Proxy runs on port + 3
             tcpProxy.listen(port + 3, routeRegistry, clusters, customFilters);
             activeTransports.add(tcpProxy);
