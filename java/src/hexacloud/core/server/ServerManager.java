@@ -255,8 +255,8 @@ public class ServerManager implements ServerOperations {
             tcpProxy.setSoTimeout(this.tcpSoTimeout);
             tcpProxy.setKeepAlive(this.tcpKeepAlive);
             tcpProxy.setConnectionRegistry(this.connectionRegistry);
-            // TCP Proxy runs on port + 3
-            tcpProxy.listen(port + 3, routeRegistry, clusters, customFilters);
+            // TCP Proxy runs on port + TCP_PORT_OFFSET
+            tcpProxy.listen(port + ClusterConfig.TCP_PORT_OFFSET, routeRegistry, clusters, customFilters);
             activeTransports.add(tcpProxy);
         }
         
@@ -285,6 +285,7 @@ public class ServerManager implements ServerOperations {
             }
         }
         activeTransports.clear();
+        connectionRegistry.closeAll();
     }
 
     /**

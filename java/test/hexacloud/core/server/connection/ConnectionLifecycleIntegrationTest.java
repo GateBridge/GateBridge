@@ -1,6 +1,7 @@
 package hexacloud.core.server.connection;
 
 import hexacloud.core.cluster.Cluster;
+import hexacloud.core.config.ClusterConfig;
 import hexacloud.core.model.NodeStatus;
 import hexacloud.core.model.RoutingProtocol;
 import hexacloud.core.model.ServerNode;
@@ -197,7 +198,7 @@ public class ConnectionLifecycleIntegrationTest {
         serverManager.listen(basePort);
         Thread.sleep(100);
 
-        int proxyPort = basePort + 3;
+        int proxyPort = basePort + ClusterConfig.TCP_PORT_OFFSET;
 
         try (Socket socket = new Socket("127.0.0.1", proxyPort)) {
             socket.setSoTimeout(3000);
@@ -217,6 +218,18 @@ public class ConnectionLifecycleIntegrationTest {
         assertEquals(1, disconnectedList.size());
         assertEquals("TCP", disconnectedList.get(0).getProtocol());
         assertEquals(0, registry.getActiveConnectionCount());
+    }
+
+    @Test
+    public void testServerManagerStopClosesActiveConnections() {
+        ConnectionRegistry registry = serverManager.getConnectionRegistry();
+        ConnectionContext mockContext = new ConnectionContextImpl("test-id-1", "TCP", "127.0.0.1:12345");
+        registry.registerConnection(mockContext);
+        assertEquals(1, registry.getActiveConnectionCount());
+
+        serverManager.stop();
+        assertEquals(0, registry.getActiveConnectionCount(), "ServerManager.stop() should invoke closeAll() on ConnectionRegistry");
+        assertFalse(mockContext.isAlive(), "Registered connection should be closed after ServerManager.stop()");
     }
 
     private int findFreePort() throws Exception {
