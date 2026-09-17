@@ -24,13 +24,19 @@ import hexacloud.core.utils.concurrent.ThreadManager;
 
 import java.io.PrintWriter;
 import java.util.List;
+import java.util.UUID;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.function.BiConsumer;
+
+import hexacloud.core.server.connection.ConnectionContext;
+import hexacloud.core.server.connection.ConnectionContextImpl;
+import hexacloud.core.server.connection.ConnectionRegistry;
 
 public class UndertowHttpTransport implements ServerTransport {
 
     private Undertow server;
     private boolean running = false;
+    private ConnectionRegistry connectionRegistry;
     private java.util.concurrent.ExecutorService virtualExecutor;
     private final HttpErrorHandler errorHandler = new DefaultHttpErrorHandler();
     private final java.util.concurrent.atomic.AtomicInteger activeRequests = new java.util.concurrent.atomic.AtomicInteger(0);
@@ -39,6 +45,11 @@ public class UndertowHttpTransport implements ServerTransport {
     private hexacloud.core.server.PerformanceProfile performanceProfile = hexacloud.core.server.PerformanceProfile.STANDARD;
     private final List<HttpFilter> activeFilters = new CopyOnWriteArrayList<>();
     private hexacloud.core.ports.SslContextPort sslContextPort;
+
+    @Override
+    public void setConnectionRegistry(ConnectionRegistry registry) {
+        this.connectionRegistry = registry;
+    }
 
     private void rebuildFilters(List<Cluster> clusters, List<HttpFilter> customFilters) {
         activeFilters.clear();
@@ -175,86 +186,100 @@ public class UndertowHttpTransport implements ServerTransport {
     private static final io.undertow.util.HttpString HEADER_CORS_HEADERS = io.undertow.util.HttpString.tryFromString("Access-Control-Allow-Headers");
 
     private void processRequest(HttpServerExchange exchange, RouteRegistry registry, RouteResolution resolution) {
+        ConnectionContext ctx = null;
+        if (connectionRegistry != null) {
+            String remoteAddr = exchange.getSourceAddress() != null
+                    ? exchange.getSourceAddress().toString()
+                    : "unknown";
+            ctx = new ConnectionContextImpl(UUID.randomUUID().toString(), "HTTP", remoteAddr);
+            connectionRegistry.registerConnection(ctx);
+        }
         try {
-            UndertowHttpRequestImpl req = new UndertowHttpRequestImpl(exchange);
-
-            boolean canUseFastPath = resolution.isLocal() 
-                    && registry.isRouteFastPath(resolution.localRouteName())
-                    && (activeFilters.isEmpty() || (activeFilters.size() == 1 && activeFilters.get(0) instanceof CorsFilter));
-
-            if (canUseFastPath) {
-                // Set CORS headers directly
-                exchange.getResponseHeaders().put(HEADER_CORS_ORIGIN, "*");
-                exchange.getResponseHeaders().put(HEADER_CORS_METHODS, "GET, POST, OPTIONS, PUT, DELETE");
-                exchange.getResponseHeaders().put(HEADER_CORS_HEADERS, "X-Cluster-Token, Content-Type, Authorization");
-
-                if (io.undertow.util.Methods.OPTIONS.equals(exchange.getRequestMethod())) {
-                    exchange.setStatusCode(204);
-                    exchange.endExchange();
-                    return;
-                }
-
-                BiConsumer<String, PrintWriter> handler = registry.getRoutes().get(resolution.localRouteName());
-                if (handler != null) {
-                    if (resolution.localRouteName().equals("/V1/GET_NODES_JSON")) {
-                        exchange.getResponseHeaders().put(io.undertow.util.Headers.CONTENT_TYPE, "application/json");
-                    } else {
-                        exchange.getResponseHeaders().put(io.undertow.util.Headers.CONTENT_TYPE, "text/plain");
-                    }
-                    exchange.setStatusCode(200);
-
-                    FastPrintWriter out = FAST_WRITER.get();
-                    out.reset();
-                    String query = req.getQuery();
-                    String args = query != null ? query : "";
-                    handler.accept(args, out);
-
-                    byte[] responseBytes = out.toBytes();
-                    exchange.getResponseHeaders().put(io.undertow.util.Headers.CONTENT_LENGTH, String.valueOf(responseBytes.length));
-                    exchange.getResponseSender().send(java.nio.ByteBuffer.wrap(responseBytes));
-                    return;
-                }
-            }
-
-            UndertowHttpResponseImpl res = new UndertowHttpResponseImpl(exchange);
-
-            // Inline default CorsFilter optimization
-            if (activeFilters.size() == 1 && activeFilters.get(0) instanceof CorsFilter) {
-                res.setHeader("Access-Control-Allow-Origin", "*");
-                res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS, PUT, DELETE");
-                res.setHeader("Access-Control-Allow-Headers", "X-Cluster-Token, Content-Type, Authorization");
-
-                if ("OPTIONS".equalsIgnoreCase(req.getMethod())) {
-                    res.setStatus(204);
-                    res.flushBuffer();
-                    exchange.endExchange();
-                    return;
-                }
-
-                executeRoute(req, res, resolution, registry);
-                sendResponse(res, exchange);
-                return;
-            }
-
-            BiConsumer<HttpRequest, HttpResponse> routeHandler = (r, s) -> {
-                try {
-                    executeRoute(r, s, resolution, registry);
-                } catch (Exception e) {
-                    throw new RuntimeException(e);
-                }
-            };
-
-            HttpFilterChainImpl chain = new HttpFilterChainImpl(activeFilters, routeHandler);
-            chain.doFilter(req, res);
-            sendResponse(res, exchange);
-
-        } catch (Exception e) {
-            DebugUtils.error("UndertowHttpTransport: Exception caught in filter chain pipeline: " + e.getMessage(), e);
             try {
+                UndertowHttpRequestImpl req = new UndertowHttpRequestImpl(exchange);
+
+                boolean canUseFastPath = resolution.isLocal() 
+                        && registry.isRouteFastPath(resolution.localRouteName())
+                        && (activeFilters.isEmpty() || (activeFilters.size() == 1 && activeFilters.get(0) instanceof CorsFilter));
+
+                if (canUseFastPath) {
+                    // Set CORS headers directly
+                    exchange.getResponseHeaders().put(HEADER_CORS_ORIGIN, "*");
+                    exchange.getResponseHeaders().put(HEADER_CORS_METHODS, "GET, POST, OPTIONS, PUT, DELETE");
+                    exchange.getResponseHeaders().put(HEADER_CORS_HEADERS, "X-Cluster-Token, Content-Type, Authorization");
+
+                    if (io.undertow.util.Methods.OPTIONS.equals(exchange.getRequestMethod())) {
+                        exchange.setStatusCode(204);
+                        exchange.endExchange();
+                        return;
+                    }
+
+                    BiConsumer<String, PrintWriter> handler = registry.getRoutes().get(resolution.localRouteName());
+                    if (handler != null) {
+                        if (resolution.localRouteName().equals("/V1/GET_NODES_JSON")) {
+                            exchange.getResponseHeaders().put(io.undertow.util.Headers.CONTENT_TYPE, "application/json");
+                        } else {
+                            exchange.getResponseHeaders().put(io.undertow.util.Headers.CONTENT_TYPE, "text/plain");
+                        }
+                        exchange.setStatusCode(200);
+
+                        FastPrintWriter out = FAST_WRITER.get();
+                        out.reset();
+                        String query = req.getQuery();
+                        String args = query != null ? query : "";
+                        handler.accept(args, out);
+
+                        byte[] responseBytes = out.toBytes();
+                        exchange.getResponseHeaders().put(io.undertow.util.Headers.CONTENT_LENGTH, String.valueOf(responseBytes.length));
+                        exchange.getResponseSender().send(java.nio.ByteBuffer.wrap(responseBytes));
+                        return;
+                    }
+                }
+
                 UndertowHttpResponseImpl res = new UndertowHttpResponseImpl(exchange);
-                errorHandler.handleException(res, e);
+
+                // Inline default CorsFilter optimization
+                if (activeFilters.size() == 1 && activeFilters.get(0) instanceof CorsFilter) {
+                    res.setHeader("Access-Control-Allow-Origin", "*");
+                    res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS, PUT, DELETE");
+                    res.setHeader("Access-Control-Allow-Headers", "X-Cluster-Token, Content-Type, Authorization");
+
+                    if ("OPTIONS".equalsIgnoreCase(req.getMethod())) {
+                        res.setStatus(204);
+                        res.flushBuffer();
+                        exchange.endExchange();
+                        return;
+                    }
+
+                    executeRoute(req, res, resolution, registry);
+                    sendResponse(res, exchange);
+                    return;
+                }
+
+                BiConsumer<HttpRequest, HttpResponse> routeHandler = (r, s) -> {
+                    try {
+                        executeRoute(r, s, resolution, registry);
+                    } catch (Exception e) {
+                        throw new RuntimeException(e);
+                    }
+                };
+
+                HttpFilterChainImpl chain = new HttpFilterChainImpl(activeFilters, routeHandler);
+                chain.doFilter(req, res);
                 sendResponse(res, exchange);
-            } catch (Exception ignored) {}
+
+            } catch (Exception e) {
+                DebugUtils.error("UndertowHttpTransport: Exception caught in filter chain pipeline: " + e.getMessage(), e);
+                try {
+                    UndertowHttpResponseImpl res = new UndertowHttpResponseImpl(exchange);
+                    errorHandler.handleException(res, e);
+                    sendResponse(res, exchange);
+                } catch (Exception ignored) {}
+            }
+        } finally {
+            if (connectionRegistry != null && ctx != null) {
+                connectionRegistry.unregisterConnection(ctx);
+            }
         }
     }
 

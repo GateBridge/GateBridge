@@ -1,6 +1,7 @@
 package hexacloud.core.server;
 
 import hexacloud.core.cluster.Cluster;
+import hexacloud.core.server.connection.ConnectionRegistry;
 import hexacloud.core.server.filter.HttpFilter;
 import hexacloud.core.server.route.RouteRegistry;
 import java.util.List;
@@ -10,4 +11,5 @@ public interface ServerTransport {
     void stop();
     boolean isRunning();
     default void setPerformanceProfile(PerformanceProfile profile) {}
+    default void setConnectionRegistry(ConnectionRegistry registry) {}
 }

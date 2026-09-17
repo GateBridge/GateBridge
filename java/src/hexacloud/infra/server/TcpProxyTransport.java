@@ -4,6 +4,9 @@ import hexacloud.core.cluster.Cluster;
 import hexacloud.core.model.NodeStatus;
 import hexacloud.core.model.ServerNode;
 import hexacloud.core.server.ServerTransport;
+import hexacloud.core.server.connection.ConnectionContext;
+import hexacloud.core.server.connection.ConnectionContextImpl;
+import hexacloud.core.server.connection.ConnectionRegistry;
 import hexacloud.core.server.filter.HttpFilter;
 import hexacloud.core.server.route.RouteRegistry;
 import hexacloud.core.utils.common.DebugUtils;
@@ -17,6 +20,7 @@ import java.net.ServerSocket;
 import java.net.Socket;
 import java.util.List;
 import java.util.Set;
+import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
@@ -31,6 +35,7 @@ public class TcpProxyTransport implements ServerTransport {
     private ServerSocket serverSocket;
     private volatile boolean running = false;
     private volatile boolean active = true;
+    private ConnectionRegistry connectionRegistry;
     private final AtomicInteger roundRobinIndex = new AtomicInteger(0);
     private final Set<Socket> activeSockets = ConcurrentHashMap.newKeySet();
     private static final int MAX_POOL_SIZE = 512;
@@ -39,6 +44,11 @@ public class TcpProxyTransport implements ServerTransport {
 
     private int tcpSoTimeout = 30000;
     private boolean tcpKeepAlive = true;
+
+    @Override
+    public void setConnectionRegistry(ConnectionRegistry registry) {
+        this.connectionRegistry = registry;
+    }
 
     public void setSoTimeout(int timeoutMs) {
         this.tcpSoTimeout = timeoutMs;
@@ -102,6 +112,20 @@ public class TcpProxyTransport implements ServerTransport {
     }
 
     private void handleConnection(Socket clientSocket, List<Cluster> clusters) {
+        ConnectionContext ctx = null;
+        if (connectionRegistry != null) {
+            String remoteAddr = clientSocket.getRemoteSocketAddress() != null
+                    ? clientSocket.getRemoteSocketAddress().toString()
+                    : (clientSocket.getInetAddress() != null ? clientSocket.getInetAddress().getHostAddress() : "unknown");
+            ctx = new ConnectionContextImpl(
+                    UUID.randomUUID().toString(),
+                    "TCP",
+                    remoteAddr,
+                    () -> closeQuietly(clientSocket)
+            );
+            connectionRegistry.registerConnection(ctx);
+        }
+
         Socket nodeSocket = null;
         try {
             // Collect all ONLINE TCP nodes across all clusters
@@ -114,7 +138,6 @@ public class TcpProxyTransport implements ServerTransport {
 
             if (activeNodes.isEmpty()) {
                 DebugUtils.info("TcpProxyTransport: No active TCP nodes available.");
-                closeQuietly(clientSocket);
                 return;
             }
 
@@ -150,9 +173,10 @@ public class TcpProxyTransport implements ServerTransport {
             InputStream nodeIn = finalNodeSocket.getInputStream();
             OutputStream nodeOut = finalNodeSocket.getOutputStream();
 
+            final ConnectionContext finalCtx = ctx;
             // Bidirectional tunneling using virtual threads
-            Thread t1 = ThreadManager.startVirtual("TcpProxy-ClientToNode", () -> tunnel(clientIn, nodeOut, clientSocket, finalNodeSocket));
-            Thread t2 = ThreadManager.startVirtual("TcpProxy-NodeToClient", () -> tunnel(nodeIn, clientOut, finalNodeSocket, clientSocket));
+            Thread t1 = ThreadManager.startVirtual("TcpProxy-ClientToNode", () -> tunnel(clientIn, nodeOut, clientSocket, finalNodeSocket, finalCtx));
+            Thread t2 = ThreadManager.startVirtual("TcpProxy-NodeToClient", () -> tunnel(nodeIn, clientOut, finalNodeSocket, clientSocket, finalCtx));
 
             // Wait for both tunneling threads to finish so cleanup can unregister active sockets
             try {
@@ -164,8 +188,14 @@ public class TcpProxyTransport implements ServerTransport {
             }
 
         } catch (Exception e) {
+            if (connectionRegistry != null && ctx != null) {
+                connectionRegistry.notifyError(ctx, e);
+            }
             DebugUtils.error("TcpProxyTransport: Exception during socket proxying", e);
         } finally {
+            if (connectionRegistry != null && ctx != null) {
+                connectionRegistry.unregisterConnection(ctx);
+            }
             if (nodeSocket != null) {
                 closeQuietly(nodeSocket);
                 activeSockets.remove(nodeSocket);
@@ -176,6 +206,10 @@ public class TcpProxyTransport implements ServerTransport {
     }
 
     private void tunnel(InputStream in, OutputStream out, Socket inSocket, Socket outSocket) {
+        tunnel(in, out, inSocket, outSocket, null);
+    }
+
+    private void tunnel(InputStream in, OutputStream out, Socket inSocket, Socket outSocket, ConnectionContext ctx) {
         byte[] buffer = BUFFER_POOL.poll();
         if (buffer != null) {
             POOL_SIZE.decrementAndGet();
@@ -187,6 +221,9 @@ public class TcpProxyTransport implements ServerTransport {
             while ((bytesRead = in.read(buffer)) != -1) {
                 out.write(buffer, 0, bytesRead);
                 out.flush();
+                if (connectionRegistry != null && ctx != null) {
+                    connectionRegistry.touchConnection(ctx);
+                }
             }
         } catch (IOException ignored) {
         } finally {

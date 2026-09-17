@@ -15,6 +15,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.LinkedHashMap;
+import java.util.UUID;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ExecutorService;
 import java.util.stream.Collectors;
@@ -25,6 +26,9 @@ import hexacloud.core.event.EventBusManager;
 import hexacloud.core.event.EventListener;
 import hexacloud.core.server.filter.HttpFilter;
 import hexacloud.core.server.ServerTransport;
+import hexacloud.core.server.connection.ConnectionContext;
+import hexacloud.core.server.connection.ConnectionContextImpl;
+import hexacloud.core.server.connection.ConnectionRegistry;
 import hexacloud.core.server.route.RouteRegistry;
 import hexacloud.core.utils.common.Casts;
 import hexacloud.core.utils.common.DebugUtils;
@@ -41,9 +45,15 @@ public class WsTransport implements ServerTransport {
     private final ExecutorService threadPool = ThreadManager.newVirtualThreadPool();
     private final List<ClientConnection> clients = new CopyOnWriteArrayList<>();
     private final EventListener<Event> eventInterceptor = this::broadcastEvent;
+    private ConnectionRegistry connectionRegistry;
 
     private ServerSocket serverSocket;
     private volatile boolean running = false;
+
+    @Override
+    public void setConnectionRegistry(ConnectionRegistry registry) {
+        this.connectionRegistry = registry;
+    }
 
     @Override
     public void listen(int port, RouteRegistry registry, java.util.List<hexacloud.core.cluster.Cluster> clusters, List<HttpFilter> customFilters) {
@@ -73,6 +83,24 @@ public class WsTransport implements ServerTransport {
     }
 
     private void acceptClient(Socket socket) {
+        ConnectionContext ctx = null;
+        if (connectionRegistry != null) {
+            String remoteAddr = socket.getRemoteSocketAddress() != null
+                    ? socket.getRemoteSocketAddress().toString()
+                    : (socket.getInetAddress() != null ? socket.getInetAddress().getHostAddress() : "unknown");
+            ctx = new ConnectionContextImpl(
+                    UUID.randomUUID().toString(),
+                    "WS",
+                    remoteAddr,
+                    () -> {
+                        try {
+                            socket.close();
+                        } catch (IOException ignored) {}
+                    }
+            );
+            connectionRegistry.registerConnection(ctx);
+        }
+
         ClientConnection client = null;
         try {
             Map<String, String> headers = readHandshakeHeaders(socket.getInputStream());
@@ -92,18 +120,21 @@ public class WsTransport implements ServerTransport {
             out.write(response.getBytes(StandardCharsets.US_ASCII));
             out.flush();
 
-            client = new ClientConnection(socket, out);
+            client = new ClientConnection(socket, out, ctx);
             clients.add(client);
             Map<String, Object> connected = new LinkedHashMap<>();
             connected.put("type", "Connected");
             connected.put("message", "GateBridge WebSocket event stream connected");
             client.send(JsonSerializer.serialize(connected));
-            waitForClientClose(socket);
+            waitForClientClose(socket, ctx);
         } catch (Exception e) {
             if (running && !isNormalDisconnect(e)) {
                 DebugUtils.error("WebSocket Transport failed to accept client", e);
             }
         } finally {
+            if (connectionRegistry != null && ctx != null) {
+                connectionRegistry.unregisterConnection(ctx);
+            }
             if (client != null) {
                 clients.remove(client);
                 client.close();
@@ -152,13 +183,16 @@ public class WsTransport implements ServerTransport {
         return Base64.getEncoder().encodeToString(hash);
     }
 
-    private void waitForClientClose(Socket socket) throws IOException {
+    private void waitForClientClose(Socket socket, ConnectionContext ctx) throws IOException {
         InputStream in = socket.getInputStream();
         byte[] buf = new byte[4096];
         try {
             while (running && !socket.isClosed()) {
                 if (in.read(buf) == -1) {
                     break;
+                }
+                if (connectionRegistry != null && ctx != null) {
+                    connectionRegistry.touchConnection(ctx);
                 }
             }
         } catch (SocketException e) {
@@ -262,16 +296,21 @@ public class WsTransport implements ServerTransport {
         return running;
     }
 
-    private static class ClientConnection {
+    private class ClientConnection {
         private final Socket socket;
         private final OutputStream out;
+        private final ConnectionContext ctx;
 
-        private ClientConnection(Socket socket, OutputStream out) {
+        private ClientConnection(Socket socket, OutputStream out, ConnectionContext ctx) {
             this.socket = socket;
             this.out = out;
+            this.ctx = ctx;
         }
 
         private synchronized void send(String text) throws IOException {
+            if (connectionRegistry != null && ctx != null) {
+                connectionRegistry.touchConnection(ctx);
+            }
             byte[] payload = text.getBytes(StandardCharsets.UTF_8);
             out.write(0x81);
             if (payload.length <= 125) {

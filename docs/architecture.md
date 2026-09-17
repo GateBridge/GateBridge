@@ -22,6 +22,7 @@ Welcome to the comprehensive architecture guide for **GateBridge**. This documen
    - [Layer 4 Raw TCP Proxy Tunneling Lifecycle](#layer-4-raw-tcp-proxy-tunneling-lifecycle)
    - [Telnet Command Execution Lifecycle](#telnet-command-execution-lifecycle)
    - [WebSocket Real-Time Telemetry Streaming Lifecycle](#websocket-real-time-telemetry-streaming-lifecycle)
+   - [Connection Lifecycle Subsystem (`hexacloud.core.server.connection`)](#connection-lifecycle-subsystem-hexacloudcoreserverconnection)
 5. [Loom Virtual Threading Model (`ThreadManager`)](#5-loom-virtual-threading-model-threadmanager)
    - [Virtual Threads vs. Platform Carrier Threads](#virtual-threads-vs-platform-carrier-threads)
    - [The "Fixed 9 OS Threads" Runtime Guarantee](#the-fixed-9-os-threads-runtime-guarantee)
@@ -279,6 +280,8 @@ graph TD
 | `TcpProxyTransport` | `hexacloud.infra.server` | Layer 4 TCP proxy load-balancing raw socket streams across backend nodes with bidirectional virtual thread tunneling. |
 | `TelnetTransport` | `hexacloud.infra.server` | Text-based command console for interactive administration and low-latency scripting. |
 | `WsTransport` | `hexacloud.infra.server` | Real-time WebSocket push broadcaster streaming cluster status updates and telemetry metrics to clients. |
+| `ConnectionRegistry` | `hexacloud.core.server.connection` | Thread-safe registry managing active client network contexts, heartbeats, lifecycle listener callbacks, and idle connection reclamation. |
+| `ConnectionContext` | `hexacloud.core.server.connection` | Abstraction representing the state, protocol metadata, remote address, and activity timestamps of active transport connections. |
 | `HttpFilterChainImpl` | `hexacloud.core.server.filter` | Ordered interceptor pipeline executing security, rate-limiting, and telemetry filters prior to route execution. |
 | `PathResolver` | `hexacloud.core.server.route` | Resolves incoming URIs, normalizes `/v1/` prefixes, enforces local route precedence, and matches Ingress `RouteRule` patterns. |
 | `ReverseProxyService` | `hexacloud.infra.server` | Streams HTTP requests and chunked responses between clients and upstream nodes, injecting `X-Forwarded-*` headers and harvesting passive telemetry. |
@@ -401,6 +404,95 @@ sequenceDiagram
 1. Clients establish a WebSocket handshake on `basePort + 2`.
 2. `WsTransport` registers active WebSocket channels in a thread-safe set.
 3. When cluster events (`NodeStatusChanged`, `NodeTelemetryUpdated`, `NodeEventSubmitted`) are published to the global event bus, a background virtual thread serializes the event payload into JSON and broadcasts it concurrently to all active WebSocket sessions.
+
+### Connection Lifecycle Subsystem (`hexacloud.core.server.connection`)
+
+The `hexacloud.core.server.connection` package manages active client network connection state, heartbeat timestamps, lifecycle event notifications, and automated idle connection reclamation across all GateBridge transport protocols (Undertow HTTP, WebSockets, Telnet, and Layer 4 TCP proxy).
+
+#### Core Abstractions
+
+1. **`ConnectionContext`**: Primary abstraction representing the lifecycle state and metadata of an active network connection:
+   - `getConnectionId()`: Returns the unique identifier assigned to the client connection.
+   - `getProtocol()`: Protocol name string (e.g., `"TCP"`, `"HTTP"`, `"WS"`, `"TELNET"`).
+   - `getRemoteAddress()`: Remote peer IP address and port string (e.g., `"127.0.0.1:54321"`).
+   - `getConnectedAtMs()`: Millisecond timestamp when connection was established.
+   - `getLastActiveMs()`: Millisecond timestamp of last recorded traffic or heartbeat.
+   - `isAlive()`: Boolean flag indicating active socket status.
+   - `touch()`: Refreshes `lastActiveMs` to current system time.
+   - `close()`: Idempotently closes the connection and triggers registered teardown callbacks.
+
+2. **`ConnectionContextImpl`**: Thread-safe default implementation of `ConnectionContext`:
+   - Uses `AtomicLong` for lock-free `lastActiveMs` updates and `AtomicBoolean` (`alive`) for safe, single-execution closure guarantees.
+   - Accepts an optional `onClose` `Runnable` callback to close underlying sockets, channels, or Virtual Thread streams upon unregistration.
+
+3. **`ConnectionLifecycleListener`**: Event listener interface for monitoring connection events:
+   - `onConnect(ConnectionContext context)`: Invoked when a client connection is registered.
+   - `onHeartbeat(ConnectionContext context)`: Invoked when traffic activity or explicit heartbeat refreshes a connection.
+   - `onDisconnect(ConnectionContext context)`: Invoked when a connection is closed or unregistered.
+   - `onError(ConnectionContext context, Throwable cause)`: Invoked when an exception occurs on a connection.
+
+4. **`ConnectionRegistry`**: Thread-safe central registry managing all active connections:
+   - Maintains active contexts in a `ConcurrentHashMap<String, ConnectionContext>`.
+   - Manages registered listeners using a `CopyOnWriteArrayList<ConnectionLifecycleListener>`.
+   - Offers `registerConnection()`, `touchConnection()`, `unregisterConnection()`, `notifyError()`, and `reclaimIdleConnections(timeoutMs)` sweeping functions.
+
+#### Lifecycle Events
+
+- **`onConnect`**: Fired when a transport listener accepts a client socket and registers the created `ConnectionContext`.
+- **`onHeartbeat`**: Fired when traffic or an explicit control packet triggers `touchConnection()`, updating `lastActiveMs`.
+- **`onDisconnect`**: Fired when a client socket closes (EOF/FIN), when a transport unregisters a connection, or when `reclaimIdleConnections()` purges an idle context.
+- **`onError`**: Fired when an I/O error or protocol exception occurs during connection processing.
+
+#### Connection Lifecycle Sequence Diagram
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Client as "Client / Remote Peer"
+    participant Transport as "Server Transport"
+    participant Registry as ConnectionRegistry
+    participant Ctx as ConnectionContextImpl
+    participant Listener as ConnectionLifecycleListener
+
+    rect rgb(30, 30, 46)
+        Note over Client, Listener: 1. Transport Listener Connection Registration
+        Client->>Transport: Accept Socket / Handshake
+        Transport->>Ctx: new ConnectionContextImpl(id, protocol, remoteAddr, onClose)
+        Transport->>Registry: registerConnection(context)
+        Registry->>Registry: put(connectionId, context)
+        Registry->>Listener: onConnect(context)
+    end
+
+    rect rgb(30, 30, 46)
+        Note over Client, Listener: 2. Active Connection Touching & Heartbeats
+        Client->>Transport: Data Packet / Heartbeat Frame
+        Transport->>Registry: touchConnection(connectionId)
+        Registry->>Ctx: touch() (atomic update lastActiveMs)
+        Registry->>Listener: onHeartbeat(context)
+    end
+
+    rect rgb(30, 30, 46)
+        Note over Client, Listener: 3. Transport Error Event Dispatch
+        Transport->>Registry: notifyError(connectionId, cause)
+        Registry->>Listener: onError(context, cause)
+    end
+
+    rect rgb(30, 30, 46)
+        Note over Client, Listener: 4. Idle Connection Reclamation
+        Registry->>Registry: reclaimIdleConnections(timeoutMs)
+        Note over Registry: Purge connections where (now - lastActiveMs >= timeoutMs)
+        Registry->>Ctx: close() -> atomic CAS alive -> onClose.run()
+        Registry->>Listener: onDisconnect(context)
+    end
+
+    rect rgb(30, 30, 46)
+        Note over Client, Listener: 5. Disconnect Trigger on Socket Closure
+        Client->>Transport: Socket Disconnect / EOF
+        Transport->>Registry: unregisterConnection(connectionId)
+        Registry->>Ctx: close() -> onClose.run()
+        Registry->>Listener: onDisconnect(context)
+    end
+```
 
 ---
 
