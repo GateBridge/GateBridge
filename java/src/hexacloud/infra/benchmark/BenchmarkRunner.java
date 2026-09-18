@@ -217,6 +217,7 @@ public class BenchmarkRunner {
         private final String protocol;
         private final String target;
         private final List<StepResult> steps;
+        private final List<StepResult> comparisonSteps;
         private final int maxStableConcurrency;
         private final double maxStableRps;
         private final String bottleneckInfo;
@@ -225,16 +226,24 @@ public class BenchmarkRunner {
 
         public BenchmarkResult(String mode, String protocol, String target, List<StepResult> steps,
                                int maxStableConcurrency, double maxStableRps, String bottleneckInfo) {
-            this(mode, protocol, target, steps, maxStableConcurrency, maxStableRps, bottleneckInfo, null, null);
+            this(mode, protocol, target, steps, null, maxStableConcurrency, maxStableRps, bottleneckInfo, null, null);
         }
 
         public BenchmarkResult(String mode, String protocol, String target, List<StepResult> steps,
+                               int maxStableConcurrency, double maxStableRps, String bottleneckInfo,
+                               SystemMetricsCollector.EnvironmentInfo environmentInfo, String saturationAnalysis) {
+            this(mode, protocol, target, steps, null, maxStableConcurrency, maxStableRps, bottleneckInfo, environmentInfo, saturationAnalysis);
+        }
+
+        public BenchmarkResult(String mode, String protocol, String target, List<StepResult> steps,
+                               List<StepResult> comparisonSteps,
                                int maxStableConcurrency, double maxStableRps, String bottleneckInfo,
                                SystemMetricsCollector.EnvironmentInfo environmentInfo, String saturationAnalysis) {
             this.mode = mode;
             this.protocol = protocol;
             this.target = target;
             this.steps = steps;
+            this.comparisonSteps = comparisonSteps;
             this.maxStableConcurrency = maxStableConcurrency;
             this.maxStableRps = maxStableRps;
             this.bottleneckInfo = bottleneckInfo;
@@ -246,6 +255,7 @@ public class BenchmarkRunner {
         public String getProtocol() { return protocol; }
         public String getTarget() { return target; }
         public List<StepResult> getSteps() { return steps; }
+        public List<StepResult> getComparisonSteps() { return comparisonSteps; }
         public int getMaxStableConcurrency() { return maxStableConcurrency; }
         public double getMaxStableRps() { return maxStableRps; }
         public String getBottleneckInfo() { return bottleneckInfo; }
@@ -294,8 +304,11 @@ public class BenchmarkRunner {
 
         if (!config.isHelpRequested()) {
             String mode = config.getMode();
-            if (mode == null || (!mode.equalsIgnoreCase("quick") && !mode.equalsIgnoreCase("stress"))) {
-                throw new IllegalArgumentException("Invalid mode: '" + mode + "'. Valid modes are: quick, stress");
+            if (mode == null || (!mode.equalsIgnoreCase("quick")
+                    && !mode.equalsIgnoreCase("stress")
+                    && !mode.equalsIgnoreCase("compare-fastpath")
+                    && !mode.equalsIgnoreCase("compare-cap"))) {
+                throw new IllegalArgumentException("Invalid mode: '" + mode + "'. Valid modes are: quick, stress, compare-fastpath, compare-cap");
             }
 
             String protocol = config.getProtocol();
@@ -392,8 +405,78 @@ public class BenchmarkRunner {
         SystemMetricsCollector sysCollector = new SystemMetricsCollector();
         SystemMetricsCollector.EnvironmentInfo envInfo = sysCollector.getEnvironmentInfo();
 
-        List<StepResult> steps = new ArrayList<>();
+        if ("compare-fastpath".equalsIgnoreCase(mode)) {
+            // Run Fast-Path OFF
+            System.setProperty("gatebridge.fastpath.enabled", "false");
+            List<StepResult> stepsOff = new ArrayList<>();
+            int idxOff = 1;
+            for (int concurrency : STRESS_RAMP_UP_CLIENTS) {
+                stepsOff.add(runStep(idxOff++, protocol, target, concurrency, config));
+            }
 
+            // Run Fast-Path ON
+            System.setProperty("gatebridge.fastpath.enabled", "true");
+            List<StepResult> stepsOn = new ArrayList<>();
+            int maxStableConcurrency = 0;
+            double maxStableRps = 0.0;
+            String bottleneckInfo = "None (Completed maximum saturation tier)";
+            int idxOn = 1;
+            for (int concurrency : STRESS_RAMP_UP_CLIENTS) {
+                StepResult step = runStep(idxOn, protocol, target, concurrency, config);
+                stepsOn.add(step);
+                if ("STABLE".equals(step.getStatus())) {
+                    if (concurrency > maxStableConcurrency) {
+                        maxStableConcurrency = concurrency;
+                        maxStableRps = step.getGoodputRps();
+                    }
+                } else if ("None (Completed maximum saturation tier)".equals(bottleneckInfo)) {
+                    bottleneckInfo = String.format("Step %d (%,d clients - %s)", idxOn, concurrency, step.getStatus());
+                }
+                idxOn++;
+            }
+
+            String saturationAnalysis = analyzeSaturationCurve(stepsOn);
+            return new BenchmarkResult(mode, protocol, target, stepsOn, stepsOff, maxStableConcurrency, maxStableRps, bottleneckInfo, envInfo, saturationAnalysis);
+        } else if ("compare-cap".equalsIgnoreCase(mode)) {
+            int[] capTiers = {1000, 2500, 5000, 10000};
+
+            // Run CAP=1500
+            System.setProperty("gatebridge.active.requests.cap", "1500");
+            List<StepResult> stepsCap1500 = new ArrayList<>();
+            int maxStableConcurrency = 0;
+            double maxStableRps = 0.0;
+            String bottleneckInfo = "None (Completed maximum saturation tier)";
+            int idx1500 = 1;
+            for (int concurrency : capTiers) {
+                StepResult step = runStep(idx1500, protocol, target, concurrency, config);
+                stepsCap1500.add(step);
+                if ("STABLE".equals(step.getStatus())) {
+                    if (concurrency > maxStableConcurrency) {
+                        maxStableConcurrency = concurrency;
+                        maxStableRps = step.getGoodputRps();
+                    }
+                } else if ("None (Completed maximum saturation tier)".equals(bottleneckInfo)) {
+                    bottleneckInfo = String.format("Step %d (%,d clients - %s)", idx1500, concurrency, step.getStatus());
+                }
+                idx1500++;
+            }
+
+            // Run CAP=0 (UNLIMITED)
+            System.setProperty("gatebridge.active.requests.cap", "0");
+            List<StepResult> stepsCapUnlimited = new ArrayList<>();
+            int idxUnlim = 1;
+            for (int concurrency : capTiers) {
+                stepsCapUnlimited.add(runStep(idxUnlim++, protocol, target, concurrency, config));
+            }
+
+            // Restore original cap config
+            System.setProperty("gatebridge.active.requests.cap", String.valueOf(config.getCap()));
+
+            String saturationAnalysis = analyzeSaturationCurve(stepsCap1500);
+            return new BenchmarkResult(mode, protocol, target, stepsCap1500, stepsCapUnlimited, maxStableConcurrency, maxStableRps, bottleneckInfo, envInfo, saturationAnalysis);
+        }
+
+        List<StepResult> steps = new ArrayList<>();
         int maxStableConcurrency = 0;
         double maxStableRps = 0.0;
         String bottleneckInfo = "None (Completed maximum saturation tier)";
@@ -696,7 +779,17 @@ public class BenchmarkRunner {
 
     public static String formatReport(BenchmarkResult result) {
         StringBuilder sb = new StringBuilder();
-        String modeHeader = "quick".equalsIgnoreCase(result.getMode()) ? "QUICK SMOKE" : "STRESS RAMP-UP (13 TIERS)";
+        String modeHeader;
+        if ("quick".equalsIgnoreCase(result.getMode())) {
+            modeHeader = "QUICK SMOKE";
+        } else if ("compare-fastpath".equalsIgnoreCase(result.getMode())) {
+            modeHeader = "FAST-PATH DUAL COMPARISON";
+        } else if ("compare-cap".equalsIgnoreCase(result.getMode())) {
+            modeHeader = "CAP EXPERIMENT DUAL COMPARISON";
+        } else {
+            modeHeader = "STRESS RAMP-UP (13 TIERS)";
+        }
+
         sb.append("====================================================================================================\n");
         sb.append(String.format("           GATEBRIDGE SCIENTIFIC BENCHMARK REPORT (Mode: %s)\n", modeHeader));
         sb.append("====================================================================================================\n");
@@ -706,26 +799,71 @@ public class BenchmarkRunner {
                     env.getOsName(), env.getOsVersion(), env.getOsArch(), env.getAvailableProcessors(),
                     env.getJavaVersion(), env.getJavaVendor(), env.getMaxHeapMb()));
         }
-        sb.append(String.format("Protocol: %s | Target: %s\n\n",
-                result.getProtocol().toUpperCase(), result.getTarget()));
+        sb.append(String.format("Configuration: Protocol: %s | Target: %s | Mode: %s\n\n",
+                result.getProtocol().toUpperCase(), result.getTarget(), result.getMode()));
 
-        sb.append(String.format("%-4s %9s %16s %15s %10s %10s %10s %9s %7s %9s   %s\n",
-                "STEP", "CLIENTS", "GOODPUT (RPS)", "TOTAL (RPS)", "p50", "p95", "p99", "ERROR%", "CPU%", "HEAP(MB)", "STATUS"));
+        if ("compare-fastpath".equalsIgnoreCase(result.getMode()) && result.getComparisonSteps() != null) {
+            sb.append("FAST-PATH DUAL COMPARISON (Fast-Path OFF vs Fast-Path ON):\n");
+            sb.append(String.format("%-8s %16s %10s %16s %10s %18s %16s\n",
+                    "CLIENTS", "OFF GOODPUT (RPS)", "OFF P99", "ON GOODPUT (RPS)", "ON P99", "GOODPUT DELTA", "LATENCY DELTA"));
+            sb.append("----------------------------------------------------------------------------------------------------\n");
+
+            List<StepResult> stepsOn = result.getSteps();
+            List<StepResult> stepsOff = result.getComparisonSteps();
+            int count = Math.min(stepsOn.size(), stepsOff.size());
+            for (int i = 0; i < count; i++) {
+                StepResult on = stepsOn.get(i);
+                StepResult off = stepsOff.get(i);
+                double gDelta = on.getGoodputRps() - off.getGoodputRps();
+                double gPct = off.getGoodputRps() > 0 ? (gDelta / off.getGoodputRps() * 100.0) : 0.0;
+                long p99Delta = on.getP99LatencyMs() - off.getP99LatencyMs();
+
+                sb.append(String.format("%-8d %16.0f %9dms %16.0f %9dms %+17.0f (%+.1f%%) %+14dms\n",
+                        on.getConcurrency(), off.getGoodputRps(), off.getP99LatencyMs(),
+                        on.getGoodputRps(), on.getP99LatencyMs(), gDelta, gPct, p99Delta));
+            }
+            sb.append("----------------------------------------------------------------------------------------------------\n\n");
+        } else if ("compare-cap".equalsIgnoreCase(result.getMode()) && result.getComparisonSteps() != null) {
+            sb.append("CAP EXPERIMENT DUAL COMPARISON (CAP=1500 vs CAP=UNLIMITED):\n");
+            sb.append(String.format("%-8s %16s %12s %10s %18s %14s %12s %14s\n",
+                    "CLIENTS", "CAP1500 GOODPUT", "CAP1500 503s", "CAP1500 P99", "UNLIMITED GOODPUT", "UNLIMITED ERR", "UNLIMITED P99", "P99 DELTA"));
+            sb.append("----------------------------------------------------------------------------------------------------\n");
+
+            List<StepResult> cap1500 = result.getSteps();
+            List<StepResult> unlim = result.getComparisonSteps();
+            int count = Math.min(cap1500.size(), unlim.size());
+            for (int i = 0; i < count; i++) {
+                StepResult c1500 = cap1500.get(i);
+                StepResult cUnlim = unlim.get(i);
+                long p99Delta = cUnlim.getP99LatencyMs() - c1500.getP99LatencyMs();
+
+                sb.append(String.format("%-8d %16.0f %12d %9dms %18.0f %14d %11dms %+13dms\n",
+                        c1500.getConcurrency(), c1500.getGoodputRps(), c1500.getCap503Requests(), c1500.getP99LatencyMs(),
+                        cUnlim.getGoodputRps(), cUnlim.getErrorRequests(), cUnlim.getP99LatencyMs(), p99Delta));
+            }
+            sb.append("----------------------------------------------------------------------------------------------------\n\n");
+        }
+
+        sb.append("MEASURED TIER METRICS:\n");
+        sb.append(String.format("%-4s %9s %15s %8s %8s %8s %8s %8s %8s %8s %7s %9s   %s\n",
+                "STEP", "CLIENTS", "GOODPUT (RPS)", "p50", "p90", "p95", "p99", "p99.9", "ERRORS", "503 CAP", "CPU%", "RAM(MB)", "STATUS"));
         sb.append("----------------------------------------------------------------------------------------------------\n");
 
         for (StepResult step : result.getSteps()) {
             String clientsStr = String.format("%,d", step.getConcurrency());
             String gRpsStr = String.format("%,.0f", step.getGoodputRps());
-            String tRpsStr = String.format("%,.0f", step.getThroughputRps());
             String p50Str = String.format("%dms", step.getP50LatencyMs());
+            String p90Str = String.format("%dms", step.getP90LatencyMs());
             String p95Str = String.format("%dms", step.getP95LatencyMs());
             String p99Str = String.format("%dms", step.getP99LatencyMs());
-            String errStr = String.format("%.2f%%", step.getErrorPercentage());
+            String p999Str = String.format("%dms", step.getP999LatencyMs());
+            String errStr = String.format("%,d", step.getErrorRequests());
+            String cap503Str = String.format("%,d", step.getCap503Requests());
             String cpuStr = String.format("%.1f%%", step.getCpuPercent());
             String heapStr = String.format("%dMB", step.getHeapUsedMb());
 
-            sb.append(String.format("%-4d %9s %16s %15s %10s %10s %10s %9s %7s %9s   %s\n",
-                    step.getStepIndex(), clientsStr, gRpsStr, tRpsStr, p50Str, p95Str, p99Str, errStr, cpuStr, heapStr, step.getStatus()));
+            sb.append(String.format("%-4d %9s %15s %8s %8s %8s %8s %8s %8s %8s %7s %9s   %s\n",
+                    step.getStepIndex(), clientsStr, gRpsStr, p50Str, p90Str, p95Str, p99Str, p999Str, errStr, cap503Str, cpuStr, heapStr, step.getStatus()));
         }
 
         sb.append("----------------------------------------------------------------------------------------------------\n");
@@ -740,7 +878,11 @@ public class BenchmarkRunner {
         if (result.getSaturationAnalysis() != null) {
             sb.append(String.format("- Saturation Curve Analysis: %s\n", result.getSaturationAnalysis()));
         }
-        sb.append("====================================================================================================\n");
+        sb.append("====================================================================================================\n\n");
+
+        sb.append("ASCII VISUALIZATION CHARTS:\n");
+        sb.append(BenchmarkChartGenerator.generateAllCharts(result.getSteps()));
+
         return sb.toString();
     }
 
@@ -748,7 +890,7 @@ public class BenchmarkRunner {
         System.out.println("GateBridge BenchmarkRunner CLI");
         System.out.println("Usage: java hexacloud.infra.benchmark.BenchmarkRunner [options]");
         System.out.println("Options:");
-        System.out.println("  --mode=quick|stress     Execution mode: quick (100 clients) or stress (13 ramp tiers). Default: quick");
+        System.out.println("  --mode=quick|stress|compare-fastpath|compare-cap Execution mode: quick (100 clients), stress (13 ramp tiers), compare-fastpath (dual Fast-Path OFF/ON), or compare-cap (dual CAP=1500/UNLIMITED). Default: quick");
         System.out.println("  --protocol=http|tcp|ws|telnet|all Target protocol. Default: http");
         System.out.println("  --target=<url|host:port> Target URL or endpoint to benchmark. Default: protocol dependent");
         System.out.println("  --warmup=<duration>    Warm-up phase duration per tier (e.g., 3s). Default: 3s");

@@ -140,7 +140,9 @@ public class UndertowHttpTransport implements ServerTransport {
                 public void handleRequest(HttpServerExchange exchange) throws Exception {
                     String path = exchange.getRequestPath();
                     RouteResolution resolution = PathResolver.resolve(path, exchange.getRequestHeaders().getFirst(io.undertow.util.Headers.HOST), registry);
-                    boolean canUseFastPath = resolution.isLocal() 
+                    boolean fastPathEnabled = Boolean.parseBoolean(System.getProperty("gatebridge.fastpath.enabled", "true"));
+                    boolean canUseFastPath = fastPathEnabled
+                            && resolution.isLocal() 
                             && registry.isRouteFastPath(resolution.localRouteName())
                             && (activeFilters.isEmpty() || (activeFilters.size() == 1 && activeFilters.get(0) instanceof CorsFilter));
 

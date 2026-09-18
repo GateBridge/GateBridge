@@ -167,5 +167,54 @@ public class BenchmarkRunnerTest {
         String report = BenchmarkRunner.formatReport(result);
         assertNotNull(report);
         assertTrue(report.contains("STRESS RAMP-UP (13 TIERS)"));
+        assertTrue(report.contains("ASCII VISUALIZATION CHARTS:"));
+    }
+
+    @Test
+    public void testCompareFastPathMode() {
+        BenchmarkRunner.Config config = BenchmarkRunner.parseArgs(new String[]{"--mode=compare-fastpath"});
+        assertEquals("compare-fastpath", config.getMode());
+
+        BenchmarkRunner runner = new BenchmarkRunner();
+        config.setTarget("http://127.0.0.1:65534/ping");
+        config.setWarmupSeconds(0);
+        config.setDurationSeconds(1);
+        config.setRuns(1);
+
+        BenchmarkRunner.BenchmarkResult result = runner.runBenchmark(config);
+        assertNotNull(result);
+        assertEquals("compare-fastpath", result.getMode());
+        assertNotNull(result.getSteps());
+        assertNotNull(result.getComparisonSteps());
+        assertEquals(13, result.getSteps().size());
+        assertEquals(13, result.getComparisonSteps().size());
+
+        String report = BenchmarkRunner.formatReport(result);
+        assertTrue(report.contains("FAST-PATH DUAL COMPARISON"));
+        assertTrue(report.contains("ASCII VISUALIZATION CHARTS:"));
+    }
+
+    @Test
+    public void testCompareCapMode() {
+        BenchmarkRunner.Config config = BenchmarkRunner.parseArgs(new String[]{"--mode=compare-cap"});
+        assertEquals("compare-cap", config.getMode());
+
+        BenchmarkRunner runner = new BenchmarkRunner();
+        config.setTarget("http://127.0.0.1:65534/ping");
+        config.setWarmupSeconds(0);
+        config.setDurationSeconds(1);
+        config.setRuns(1);
+
+        BenchmarkRunner.BenchmarkResult result = runner.runBenchmark(config);
+        assertNotNull(result);
+        assertEquals("compare-cap", result.getMode());
+        assertNotNull(result.getSteps());
+        assertNotNull(result.getComparisonSteps());
+        assertEquals(4, result.getSteps().size());
+        assertEquals(4, result.getComparisonSteps().size());
+
+        String report = BenchmarkRunner.formatReport(result);
+        assertTrue(report.contains("CAP EXPERIMENT DUAL COMPARISON"));
+        assertTrue(report.contains("ASCII VISUALIZATION CHARTS:"));
     }
 }
