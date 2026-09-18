@@ -181,6 +181,7 @@ public class UndertowHttpTransport implements ServerTransport {
     private static final io.undertow.util.HttpString HEADER_CORS_METHODS = io.undertow.util.HttpString.tryFromString("Access-Control-Allow-Methods");
     private static final io.undertow.util.HttpString HEADER_CORS_HEADERS = io.undertow.util.HttpString.tryFromString("Access-Control-Allow-Headers");
     private static final java.util.concurrent.atomic.AtomicLong ATOMIC_ID_COUNTER = new java.util.concurrent.atomic.AtomicLong(0);
+    private static final io.undertow.util.AttachmentKey<ConnectionContext> CONNECTION_CONTEXT_KEY = io.undertow.util.AttachmentKey.create(ConnectionContext.class);
 
     io.undertow.connector.ByteBufferPool createByteBufferPool() {
         return new io.undertow.server.DefaultByteBufferPool(
@@ -201,14 +202,42 @@ public class UndertowHttpTransport implements ServerTransport {
     }
 
     private void processRequest(HttpServerExchange exchange, RouteRegistry registry, RouteResolution resolution) {
-        ConnectionContext ctx = null;
+        ConnectionContext legacyCtx = null;
         boolean registryEnabled = Boolean.parseBoolean(System.getProperty("gatebridge.connection.registry.enabled", "true"));
+        boolean socketLifecycleEnabled = Boolean.parseBoolean(System.getProperty("gatebridge.socket.lifecycle.enabled", "true"));
+
         if (registryEnabled && connectionRegistry != null) {
-            String remoteAddr = exchange.getSourceAddress() != null
-                    ? exchange.getSourceAddress().toString()
-                    : "unknown";
-            ctx = new ConnectionContextImpl(generateConnectionId(), "HTTP", remoteAddr);
-            connectionRegistry.registerConnection(ctx);
+            io.undertow.server.ServerConnection connection = exchange.getConnection();
+            if (socketLifecycleEnabled && connection != null) {
+                ConnectionContext ctx = connection.getAttachment(CONNECTION_CONTEXT_KEY);
+                if (ctx == null) {
+                    synchronized (connection) {
+                        ctx = connection.getAttachment(CONNECTION_CONTEXT_KEY);
+                        if (ctx == null) {
+                            String remoteAddr = exchange.getSourceAddress() != null
+                                    ? exchange.getSourceAddress().toString()
+                                    : "unknown";
+                            ctx = new ConnectionContextImpl(generateConnectionId(), "HTTP", remoteAddr);
+                            connection.putAttachment(CONNECTION_CONTEXT_KEY, ctx);
+                            connectionRegistry.registerConnection(ctx);
+                            ConnectionContext finalCtx = ctx;
+                            connection.addCloseListener(conn -> {
+                                connectionRegistry.unregisterConnection(finalCtx);
+                            });
+                        } else {
+                            connectionRegistry.touchConnection(ctx);
+                        }
+                    }
+                } else {
+                    connectionRegistry.touchConnection(ctx);
+                }
+            } else {
+                String remoteAddr = exchange.getSourceAddress() != null
+                        ? exchange.getSourceAddress().toString()
+                        : "unknown";
+                legacyCtx = new ConnectionContextImpl(generateConnectionId(), "HTTP", remoteAddr);
+                connectionRegistry.registerConnection(legacyCtx);
+            }
         }
         try {
             try {
@@ -293,8 +322,8 @@ public class UndertowHttpTransport implements ServerTransport {
                 } catch (Exception ignored) {}
             }
         } finally {
-            if (connectionRegistry != null && ctx != null) {
-                connectionRegistry.unregisterConnection(ctx);
+            if (connectionRegistry != null && legacyCtx != null) {
+                connectionRegistry.unregisterConnection(legacyCtx);
             }
         }
     }
