@@ -36,7 +36,7 @@ public class HttpBenchmarkClient {
 
     public void sendRequest(String targetUrl, AtomicBoolean running) {
         long startTime = System.currentTimeMillis();
-        boolean success = false;
+        int statusCode = -1;
         try {
             HttpRequest.Builder reqBuilder = HttpRequest.newBuilder()
                     .uri(URI.create(targetUrl))
@@ -54,13 +54,17 @@ public class HttpBenchmarkClient {
 
             HttpRequest request = reqBuilder.build();
             HttpResponse<Void> response = httpClient.send(request, HttpResponse.BodyHandlers.discarding());
-            success = (response.statusCode() >= 200 && response.statusCode() < 500);
+            statusCode = response.statusCode();
         } catch (Exception e) {
-            success = false;
+            statusCode = -1;
         } finally {
             long latencyMs = System.currentTimeMillis() - startTime;
-            if (success || ((running == null || running.get()) && !Thread.currentThread().isInterrupted())) {
-                metricsCollector.recordRequest(latencyMs, success);
+            if (statusCode > 0 || ((running == null || running.get()) && !Thread.currentThread().isInterrupted())) {
+                if (statusCode > 0) {
+                    metricsCollector.recordRequest(latencyMs, statusCode);
+                } else {
+                    metricsCollector.recordRequest(latencyMs, false);
+                }
             }
         }
     }

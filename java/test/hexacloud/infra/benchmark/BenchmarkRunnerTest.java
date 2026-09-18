@@ -2,6 +2,8 @@ package hexacloud.infra.benchmark;
 
 import org.junit.jupiter.api.Test;
 
+import java.util.List;
+
 import static org.junit.jupiter.api.Assertions.*;
 
 public class BenchmarkRunnerTest {
@@ -12,17 +14,37 @@ public class BenchmarkRunnerTest {
         assertEquals("quick", config.getMode());
         assertEquals("http", config.getProtocol());
         assertEquals("http://127.0.0.1:8080", config.getTarget());
+        assertEquals(3, config.getWarmupSeconds());
+        assertEquals(10, config.getDurationSeconds());
+        assertEquals(3, config.getRuns());
+        assertEquals(1500, config.getCap());
         assertFalse(config.isHelpRequested());
     }
 
     @Test
-    public void testParseArgsExplicit() {
-        String[] args = new String[]{"--mode=stress", "--protocol=tcp", "--target=127.0.0.1:9090"};
+    public void testParseArgsExplicitNewFlags() {
+        String[] args = new String[]{
+                "--mode=stress", "--protocol=tcp", "--target=127.0.0.1:9090",
+                "--warmup=5s", "--duration=15s", "--runs=5", "--cap=3000"
+        };
         BenchmarkRunner.Config config = BenchmarkRunner.parseArgs(args);
         assertEquals("stress", config.getMode());
         assertEquals("tcp", config.getProtocol());
         assertEquals("127.0.0.1:9090", config.getTarget());
+        assertEquals(5, config.getWarmupSeconds());
+        assertEquals(15, config.getDurationSeconds());
+        assertEquals(5, config.getRuns());
+        assertEquals(3000, config.getCap());
         assertFalse(config.isHelpRequested());
+    }
+
+    @Test
+    public void testParseArgsUnlimitedCap() {
+        BenchmarkRunner.Config config1 = BenchmarkRunner.parseArgs(new String[]{"--cap=0"});
+        assertEquals(0, config1.getCap());
+
+        BenchmarkRunner.Config config2 = BenchmarkRunner.parseArgs(new String[]{"--cap=unlimited"});
+        assertEquals(0, config2.getCap());
     }
 
     @Test
@@ -51,41 +73,46 @@ public class BenchmarkRunnerTest {
     }
 
     @Test
-    public void testProtocolAllDefaultTargetResolution() {
-        BenchmarkRunner.Config config = BenchmarkRunner.parseArgs(new String[]{"--protocol=all"});
-        assertNull(config.getRawTarget());
-
-        BenchmarkRunner.Config httpCfg = new BenchmarkRunner.Config();
-        httpCfg.setProtocol("http");
-        httpCfg.setTarget(config.getRawTarget());
-        assertEquals("http://127.0.0.1:8080", httpCfg.getTarget());
-
-        BenchmarkRunner.Config tcpCfg = new BenchmarkRunner.Config();
-        tcpCfg.setProtocol("tcp");
-        tcpCfg.setTarget(config.getRawTarget());
-        assertEquals("127.0.0.1:8080", tcpCfg.getTarget());
-
-        BenchmarkRunner.Config wsCfg = new BenchmarkRunner.Config();
-        wsCfg.setProtocol("ws");
-        wsCfg.setTarget(config.getRawTarget());
-        assertEquals("ws://127.0.0.1:8080", wsCfg.getTarget());
-
-        BenchmarkRunner.Config telnetCfg = new BenchmarkRunner.Config();
-        telnetCfg.setProtocol("telnet");
-        telnetCfg.setTarget(config.getRawTarget());
-        assertEquals("127.0.0.1:8080", telnetCfg.getTarget());
+    public void test13GranularRampTiers() {
+        int[] expectedTiers = {100, 500, 1000, 2500, 5000, 7500, 10000, 12500, 15000, 17500, 20000, 22500, 25000};
+        assertArrayEquals(expectedTiers, BenchmarkRunner.STRESS_RAMP_UP_CLIENTS);
+        assertEquals(13, BenchmarkRunner.STRESS_RAMP_UP_CLIENTS.length);
     }
 
     @Test
-    public void testStoppingConditionEvaluation() {
+    public void testStatusClassificationLogic() {
+        assertEquals("STABLE", BenchmarkRunner.determinePointHealthStatus(0.5, 100));
+        assertEquals("DEGRADED", BenchmarkRunner.determinePointHealthStatus(0.5, 2050));
+        assertEquals("FAILED", BenchmarkRunner.determinePointHealthStatus(1.5, 100));
+        assertEquals("FAILED", BenchmarkRunner.determinePointHealthStatus(1.5, 2500));
+
         assertFalse(BenchmarkRunner.isStoppingCondition(0.5, 100));
         assertTrue(BenchmarkRunner.isStoppingCondition(1.2, 100));
         assertTrue(BenchmarkRunner.isStoppingCondition(0.5, 2050));
-        assertTrue(BenchmarkRunner.isStoppingCondition(1.5, 2100));
+    }
 
-        assertEquals("OK", BenchmarkRunner.determineStatus(0.5, 100));
-        assertTrue(BenchmarkRunner.determineStatus(1.5, 100).contains("error > 1.0%"));
-        assertTrue(BenchmarkRunner.determineStatus(0.5, 2050).contains("p99 > 2000ms"));
+    @Test
+    public void testMedianCalculationsAcrossRuns() {
+        SystemMetricsCollector.MetricsDelta delta = new SystemMetricsCollector.MetricsDelta(10.0, 100, 1, 10, 5);
+
+        BenchmarkRunner.RunMetrics run1 = new BenchmarkRunner.RunMetrics(
+                1000, 950, 20, 30, 50, 100.0, 95.0, 10, 20, 25, 30, 40, 5.0, delta);
+        BenchmarkRunner.RunMetrics run2 = new BenchmarkRunner.RunMetrics(
+                1200, 1150, 20, 30, 50, 120.0, 115.0, 12, 22, 27, 35, 45, 4.16, delta);
+        BenchmarkRunner.RunMetrics run3 = new BenchmarkRunner.RunMetrics(
+                1100, 1050, 20, 30, 50, 110.0, 105.0, 11, 21, 26, 32, 42, 4.54, delta);
+
+        BenchmarkRunner.StepResult step = BenchmarkRunner.aggregateMedianStepResult(1, 100, List.of(run1, run2, run3));
+
+        assertEquals(1100, step.getTotalRequests());
+        assertEquals(1050, step.getGoodputRequests());
+        assertEquals(110.0, step.getThroughputRps(), 0.001);
+        assertEquals(105.0, step.getGoodputRps(), 0.001);
+        assertEquals(11, step.getP50LatencyMs());
+        assertEquals(26, step.getP95LatencyMs());
+        assertEquals(32, step.getP99LatencyMs());
+        assertEquals(4.54, step.getErrorPercentage(), 0.001);
+        assertEquals("FAILED", step.getStatus());
     }
 
     @Test
@@ -95,7 +122,9 @@ public class BenchmarkRunnerTest {
         config.setMode("quick");
         config.setProtocol("http");
         config.setTarget("http://127.0.0.1:65534/ping");
-        config.setQuickDurationSeconds(1);
+        config.setWarmupSeconds(0);
+        config.setDurationSeconds(1);
+        config.setRuns(1);
 
         BenchmarkRunner.BenchmarkResult result = runner.runBenchmark(config);
 
@@ -108,35 +137,35 @@ public class BenchmarkRunnerTest {
         BenchmarkRunner.StepResult step = result.getSteps().get(0);
         assertEquals(1, step.getStepIndex());
         assertEquals(100, step.getConcurrency());
-        assertTrue(step.isStopped());
+        assertEquals("FAILED", step.getStatus());
         assertTrue(step.getErrorPercentage() > 0.0);
 
         String report = BenchmarkRunner.formatReport(result);
         assertNotNull(report);
-        assertTrue(report.contains("GATEBRIDGE BENCHMARK REPORT"));
+        assertTrue(report.contains("GATEBRIDGE SCIENTIFIC BENCHMARK REPORT"));
         assertTrue(report.contains("QUICK SMOKE"));
     }
 
     @Test
-    public void testStressModeInitializationAndStopping() {
+    public void testStressModeContinuesThroughAll13Tiers() {
         BenchmarkRunner runner = new BenchmarkRunner();
         BenchmarkRunner.Config config = new BenchmarkRunner.Config();
         config.setMode("stress");
         config.setProtocol("http");
         config.setTarget("http://127.0.0.1:65534/ping");
-        config.setStressStepDurationSeconds(1);
+        config.setWarmupSeconds(0);
+        config.setDurationSeconds(1);
+        config.setRuns(1);
 
         BenchmarkRunner.BenchmarkResult result = runner.runBenchmark(config);
 
         assertNotNull(result);
         assertEquals("stress", result.getMode());
-        // Since requests to 65534 fail with 100% error rate, stress mode should stop after step 1
-        assertEquals(1, result.getSteps().size());
+        assertEquals(13, result.getSteps().size());
         assertEquals(0, result.getMaxStableConcurrency());
-        assertTrue(result.getBottleneckInfo().contains("Step 1"));
 
         String report = BenchmarkRunner.formatReport(result);
         assertNotNull(report);
-        assertTrue(report.contains("STRESS RAMP-UP"));
+        assertTrue(report.contains("STRESS RAMP-UP (13 TIERS)"));
     }
 }

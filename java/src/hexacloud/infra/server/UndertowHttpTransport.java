@@ -150,21 +150,32 @@ public class UndertowHttpTransport implements ServerTransport {
                     }
 
                     if (exchange.isInIoThread()) {
-                        if (activeRequests.incrementAndGet() <= 1500) {
+                        int cap = getActiveRequestsCap();
+                        if (cap > 0) {
+                            if (activeRequests.incrementAndGet() <= cap) {
+                                exchange.dispatch(virtualExecutor, () -> {
+                                    try {
+                                        processRequest(exchange, registry, resolution);
+                                    } catch (Exception e) {
+                                        handleError(exchange, e);
+                                    } finally {
+                                        activeRequests.decrementAndGet();
+                                    }
+                                });
+                            } else {
+                                activeRequests.decrementAndGet();
+                                exchange.setStatusCode(503);
+                                exchange.getResponseHeaders().put(io.undertow.util.Headers.CONTENT_TYPE, "text/plain");
+                                exchange.getResponseSender().send("503 Service Unavailable - Gateway Overloaded");
+                            }
+                        } else {
                             exchange.dispatch(virtualExecutor, () -> {
                                 try {
                                     processRequest(exchange, registry, resolution);
                                 } catch (Exception e) {
                                     handleError(exchange, e);
-                                } finally {
-                                    activeRequests.decrementAndGet();
                                 }
                             });
-                        } else {
-                            activeRequests.decrementAndGet();
-                            exchange.setStatusCode(503);
-                            exchange.getResponseHeaders().put(io.undertow.util.Headers.CONTENT_TYPE, "text/plain");
-                            exchange.getResponseSender().send("503 Service Unavailable - Gateway Overloaded");
                         }
                         return;
                     }
@@ -337,6 +348,16 @@ public class UndertowHttpTransport implements ServerTransport {
         } else {
             errorHandler.handleStatus(s, 404, "Unknown Route: " + r.getPath());
         }
+    }
+
+    private int getActiveRequestsCap() {
+        String capProp = System.getProperty("gatebridge.active.requests.cap");
+        if (capProp != null && !capProp.trim().isEmpty()) {
+            try {
+                return Integer.parseInt(capProp.trim());
+            } catch (NumberFormatException ignored) {}
+        }
+        return 1500;
     }
 
     private void handleError(HttpServerExchange exchange, Exception e) {
