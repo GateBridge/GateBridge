@@ -10,12 +10,17 @@ import java.util.Map;
 import java.util.List;
 
 public class JdkHttpProxyClient implements HttpProxyClient {
+    static {
+        System.setProperty("jdk.httpclient.connectionPoolSize", "500");
+    }
+
     private final HttpClient client;
 
     public JdkHttpProxyClient() {
+        System.setProperty("jdk.httpclient.connectionPoolSize", "500");
         this.client = HttpClient.newBuilder()
                 .version(HttpClient.Version.HTTP_1_1)
-                .connectTimeout(Duration.ofSeconds(10))
+                .connectTimeout(Duration.ofSeconds(5))
                 .followRedirects(HttpClient.Redirect.NEVER)
                 .executor(java.util.concurrent.Executors.newVirtualThreadPerTaskExecutor())
                 .build();
