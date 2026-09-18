@@ -2,7 +2,8 @@ package hexacloud.infra.benchmark.protocol;
 
 import hexacloud.infra.benchmark.MetricsCollector;
 
-import java.io.InputStream;
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.net.Socket;
@@ -10,40 +11,37 @@ import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.util.concurrent.atomic.AtomicBoolean;
 
-public class TcpBenchmarkClient {
+public class TelnetBenchmarkClient {
     private final MetricsCollector metricsCollector;
     private final int timeoutMs;
 
-    public TcpBenchmarkClient(MetricsCollector metricsCollector) {
+    public TelnetBenchmarkClient(MetricsCollector metricsCollector) {
         this(metricsCollector, 5000);
     }
 
-    public TcpBenchmarkClient(MetricsCollector metricsCollector, int timeoutMs) {
+    public TelnetBenchmarkClient(MetricsCollector metricsCollector, int timeoutMs) {
         this.metricsCollector = metricsCollector;
         this.timeoutMs = timeoutMs;
     }
 
     public void executeRequest(String host, int port) {
-        executeRequest(host, port, null);
+        executeRequest(host, port, "PING\r\n");
     }
 
-    public void executeRequest(String host, int port, byte[] payload) {
+    public void executeRequest(String host, int port, String command) {
         long startTime = System.currentTimeMillis();
         boolean success = false;
         try (Socket socket = new Socket()) {
             socket.connect(new InetSocketAddress(host, port), timeoutMs);
             socket.setSoTimeout(timeoutMs);
-            if (payload != null && payload.length > 0) {
-                OutputStream os = socket.getOutputStream();
-                os.write(payload);
-                os.flush();
-                InputStream is = socket.getInputStream();
-                byte[] buf = new byte[1024];
-                int read = is.read(buf);
-                success = (read >= 0);
-            } else {
-                success = socket.isConnected();
-            }
+            OutputStream os = socket.getOutputStream();
+            String cmd = command.endsWith("\r\n") ? command : (command.endsWith("\n") ? command.replace("\n", "\r\n") : command + "\r\n");
+            os.write(cmd.getBytes(StandardCharsets.UTF_8));
+            os.flush();
+
+            BufferedReader reader = new BufferedReader(new InputStreamReader(socket.getInputStream(), StandardCharsets.UTF_8));
+            String line = reader.readLine();
+            success = (line != null);
         } catch (Exception e) {
             success = false;
         } finally {
@@ -58,10 +56,6 @@ public class TcpBenchmarkClient {
         executeRequest(host, port);
     }
 
-    public void sendRequest(String host, int port) {
-        executeRequest(host, port);
-    }
-
     public void runClientLoop(String target, AtomicBoolean running) {
         String host = parseHost(target);
         int port = parsePort(target);
@@ -71,9 +65,8 @@ public class TcpBenchmarkClient {
     public void runClientLoop(String host, int port, AtomicBoolean running) {
         Socket socket = null;
         OutputStream os = null;
-        InputStream is = null;
-        byte[] pingPayload = "PING\n".getBytes(StandardCharsets.UTF_8);
-        byte[] buf = new byte[1024];
+        BufferedReader reader = null;
+        byte[] cmdBytes = "PING\r\n".getBytes(StandardCharsets.UTF_8);
 
         while (running.get() && !Thread.currentThread().isInterrupted()) {
             long startTime = System.currentTimeMillis();
@@ -84,24 +77,24 @@ public class TcpBenchmarkClient {
                     socket.connect(new InetSocketAddress(host, port), timeoutMs);
                     socket.setSoTimeout(timeoutMs);
                     os = socket.getOutputStream();
-                    is = socket.getInputStream();
+                    reader = new BufferedReader(new InputStreamReader(socket.getInputStream(), StandardCharsets.UTF_8));
                 }
-                os.write(pingPayload);
+                os.write(cmdBytes);
                 os.flush();
-                int read = is.read(buf);
-                success = (read >= 0);
+                String line = reader.readLine();
+                success = (line != null);
                 if (!success) {
                     closeQuietly(socket);
                     socket = null;
                     os = null;
-                    is = null;
+                    reader = null;
                 }
             } catch (Exception e) {
                 success = false;
                 closeQuietly(socket);
                 socket = null;
                 os = null;
-                is = null;
+                reader = null;
             } finally {
                 long latencyMs = System.currentTimeMillis() - startTime;
                 metricsCollector.recordRequest(latencyMs, success);
@@ -129,7 +122,6 @@ public class TcpBenchmarkClient {
             try {
                 URI uri = URI.create(target);
                 if (uri.getPort() != -1) return uri.getPort();
-                return target.startsWith("https") || target.startsWith("wss") ? 443 : 80;
             } catch (Exception ignored) {}
         }
         if (target.contains(":")) {

@@ -3,6 +3,8 @@ package hexacloud.infra.benchmark;
 import hexacloud.core.utils.concurrent.ThreadManager;
 import hexacloud.infra.benchmark.protocol.HttpBenchmarkClient;
 import hexacloud.infra.benchmark.protocol.TcpBenchmarkClient;
+import hexacloud.infra.benchmark.protocol.TelnetBenchmarkClient;
+import hexacloud.infra.benchmark.protocol.WsBenchmarkClient;
 
 import java.net.URI;
 import java.util.ArrayList;
@@ -44,6 +46,10 @@ public class BenchmarkRunner {
                 return target;
             }
             return getDefaultTargetForProtocol(protocol);
+        }
+
+        public String getRawTarget() {
+            return target;
         }
 
         public void setTarget(String target) {
@@ -249,10 +255,10 @@ public class BenchmarkRunner {
         AtomicBoolean running = new AtomicBoolean(true);
         CountDownLatch startLatch = new CountDownLatch(1);
 
-        HttpBenchmarkClient sharedHttpClient = "http".equalsIgnoreCase(protocol) || "ws".equalsIgnoreCase(protocol)
-                ? new HttpBenchmarkClient(metrics) : null;
-        TcpBenchmarkClient sharedTcpClient = "tcp".equalsIgnoreCase(protocol) || "telnet".equalsIgnoreCase(protocol)
-                ? new TcpBenchmarkClient(metrics) : null;
+        HttpBenchmarkClient httpClient = "http".equalsIgnoreCase(protocol) ? new HttpBenchmarkClient(metrics) : null;
+        TcpBenchmarkClient tcpClient = "tcp".equalsIgnoreCase(protocol) ? new TcpBenchmarkClient(metrics) : null;
+        WsBenchmarkClient wsClient = "ws".equalsIgnoreCase(protocol) ? new WsBenchmarkClient(metrics) : null;
+        TelnetBenchmarkClient telnetClient = "telnet".equalsIgnoreCase(protocol) ? new TelnetBenchmarkClient(metrics) : null;
 
         long startTime = System.currentTimeMillis();
 
@@ -261,8 +267,21 @@ public class BenchmarkRunner {
                 executor.submit(() -> {
                     try {
                         startLatch.await();
-                        while (running.get()) {
-                            executeProtocolRequest(protocol, target, metrics, sharedHttpClient, sharedTcpClient);
+                        String p = protocol.toLowerCase();
+                        switch (p) {
+                            case "tcp":
+                                (tcpClient != null ? tcpClient : new TcpBenchmarkClient(metrics)).runClientLoop(target, running);
+                                break;
+                            case "telnet":
+                                (telnetClient != null ? telnetClient : new TelnetBenchmarkClient(metrics)).runClientLoop(target, running);
+                                break;
+                            case "ws":
+                                (wsClient != null ? wsClient : new WsBenchmarkClient(metrics)).runClientLoop(target, running);
+                                break;
+                            case "http":
+                            default:
+                                (httpClient != null ? httpClient : new HttpBenchmarkClient(metrics)).runClientLoop(target, running);
+                                break;
                         }
                     } catch (InterruptedException e) {
                         Thread.currentThread().interrupt();
@@ -297,82 +316,6 @@ public class BenchmarkRunner {
         String status = determineStatus(errorPct, p99);
 
         return new StepResult(stepIndex, concurrency, totalReqs, errorReqs, rps, p50, p90, p99, errorPct, stopped, status);
-    }
-
-    private void executeProtocolRequest(String protocol, String target, MetricsCollector metrics,
-                                         HttpBenchmarkClient httpClient, TcpBenchmarkClient tcpClient) {
-        String p = protocol.toLowerCase();
-        switch (p) {
-            case "tcp": {
-                if (tcpClient != null) {
-                    tcpClient.sendRequest(target);
-                } else {
-                    new TcpBenchmarkClient(metrics).sendRequest(target);
-                }
-                break;
-            }
-            case "telnet": {
-                String host = getHostFromTarget(target);
-                int port = getPortFromTarget(target);
-                if (tcpClient != null) {
-                    tcpClient.executeRequest(host, port, "PING\r\n".getBytes());
-                } else {
-                    new TcpBenchmarkClient(metrics).executeRequest(host, port, "PING\r\n".getBytes());
-                }
-                break;
-            }
-            case "ws": {
-                String httpUrl = target;
-                if (target.startsWith("ws://")) {
-                    httpUrl = "http://" + target.substring(5);
-                } else if (target.startsWith("wss://")) {
-                    httpUrl = "https://" + target.substring(6);
-                }
-                if (httpClient != null) {
-                    httpClient.sendRequest(httpUrl);
-                } else {
-                    new HttpBenchmarkClient(metrics).sendRequest(httpUrl);
-                }
-                break;
-            }
-            case "http":
-            default: {
-                if (httpClient != null) {
-                    httpClient.sendRequest(target);
-                } else {
-                    new HttpBenchmarkClient(metrics).sendRequest(target);
-                }
-                break;
-            }
-        }
-    }
-
-    private static String getHostFromTarget(String target) {
-        if (target.contains("://")) {
-            try {
-                return URI.create(target).getHost();
-            } catch (Exception ignored) {}
-        }
-        if (target.contains(":")) {
-            return target.split(":")[0];
-        }
-        return target;
-    }
-
-    private static int getPortFromTarget(String target) {
-        if (target.contains("://")) {
-            try {
-                URI uri = URI.create(target);
-                if (uri.getPort() != -1) return uri.getPort();
-                return target.startsWith("https") || target.startsWith("wss") ? 443 : 80;
-            } catch (Exception ignored) {}
-        }
-        if (target.contains(":")) {
-            try {
-                return Integer.parseInt(target.split(":")[1]);
-            } catch (Exception ignored) {}
-        }
-        return 8080;
     }
 
     public static String formatReport(BenchmarkResult result) {
@@ -436,7 +379,9 @@ public class BenchmarkRunner {
                 Config singleConfig = new Config();
                 singleConfig.setMode(config.getMode());
                 singleConfig.setProtocol(p);
-                singleConfig.setTarget(config.getTarget());
+                singleConfig.setTarget(config.getRawTarget());
+                singleConfig.setQuickDurationSeconds(config.getQuickDurationSeconds());
+                singleConfig.setStressStepDurationSeconds(config.getStressStepDurationSeconds());
                 BenchmarkResult res = runner.runBenchmark(singleConfig);
                 System.out.println(formatReport(res));
             }

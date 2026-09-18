@@ -35,6 +35,32 @@ public class BenchmarkRunnerTest {
     }
 
     @Test
+    public void testProtocolAllDefaultTargetResolution() {
+        BenchmarkRunner.Config config = BenchmarkRunner.parseArgs(new String[]{"--protocol=all"});
+        assertNull(config.getRawTarget());
+
+        BenchmarkRunner.Config httpCfg = new BenchmarkRunner.Config();
+        httpCfg.setProtocol("http");
+        httpCfg.setTarget(config.getRawTarget());
+        assertEquals("http://127.0.0.1:8080", httpCfg.getTarget());
+
+        BenchmarkRunner.Config tcpCfg = new BenchmarkRunner.Config();
+        tcpCfg.setProtocol("tcp");
+        tcpCfg.setTarget(config.getRawTarget());
+        assertEquals("127.0.0.1:8080", tcpCfg.getTarget());
+
+        BenchmarkRunner.Config wsCfg = new BenchmarkRunner.Config();
+        wsCfg.setProtocol("ws");
+        wsCfg.setTarget(config.getRawTarget());
+        assertEquals("ws://127.0.0.1:8080", wsCfg.getTarget());
+
+        BenchmarkRunner.Config telnetCfg = new BenchmarkRunner.Config();
+        telnetCfg.setProtocol("telnet");
+        telnetCfg.setTarget(config.getRawTarget());
+        assertEquals("127.0.0.1:8080", telnetCfg.getTarget());
+    }
+
+    @Test
     public void testStoppingConditionEvaluation() {
         assertFalse(BenchmarkRunner.isStoppingCondition(0.5, 100));
         assertTrue(BenchmarkRunner.isStoppingCondition(1.2, 100));

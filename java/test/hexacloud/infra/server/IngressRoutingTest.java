@@ -265,6 +265,7 @@ public class IngressRoutingTest {
             routeOnlyCluster.setRequireToken(false);
             routeOnlyCluster.setRoutingMode(Cluster.RoutingMode.TELEMETRY_ONLY);
             routeOnlyCluster.registerServer(new ServerNode("route-node", "http://localhost", echoPort, NodeStatus.ONLINE, false));
+            ClusterRegistry.getInstance().registerCluster(routeOnlyCluster);
 
             RouteRegistry registry = new RouteRegistry();
             registry.addRouteRule(new RouteRule("localhost", "/auth/**", "route-rule-telemetry-only-cluster"));

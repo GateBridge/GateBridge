@@ -2,6 +2,8 @@ package hexacloud.infra.benchmark;
 
 import hexacloud.infra.benchmark.protocol.HttpBenchmarkClient;
 import hexacloud.infra.benchmark.protocol.TcpBenchmarkClient;
+import hexacloud.infra.benchmark.protocol.TelnetBenchmarkClient;
+import hexacloud.infra.benchmark.protocol.WsBenchmarkClient;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -70,17 +72,21 @@ public class MetricsCollectorTest {
     }
 
     @Test
-    public void testHttpAndTcpBenchmarkClients() {
+    public void testAllProtocolBenchmarkClients() {
         MetricsCollector collector = new MetricsCollector();
         HttpBenchmarkClient httpClient = new HttpBenchmarkClient(collector);
         TcpBenchmarkClient tcpClient = new TcpBenchmarkClient(collector);
+        WsBenchmarkClient wsClient = new WsBenchmarkClient(collector);
+        TelnetBenchmarkClient telnetClient = new TelnetBenchmarkClient(collector);
 
         // Requesting unroutable / closed local port should fail gracefully and record error
         httpClient.executeRequest("http://127.0.0.1:65534/nonexistent");
         tcpClient.executeRequest("127.0.0.1", 65534);
+        wsClient.executeRequest("ws://127.0.0.1:65534/ws");
+        telnetClient.executeRequest("127.0.0.1", 65534);
 
-        assertEquals(2, collector.getTotalRequests());
-        assertEquals(2, collector.getErrorRequests());
+        assertEquals(4, collector.getTotalRequests());
+        assertEquals(4, collector.getErrorRequests());
         assertEquals(100.0, collector.getErrorPercentage(), 0.001);
     }
 }

@@ -7,6 +7,7 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 public class HttpBenchmarkClient {
     private final HttpClient httpClient;
@@ -45,6 +46,12 @@ public class HttpBenchmarkClient {
         } finally {
             long latencyMs = System.currentTimeMillis() - startTime;
             metricsCollector.recordRequest(latencyMs, success);
+        }
+    }
+
+    public void runClientLoop(String targetUrl, AtomicBoolean running) {
+        while (running.get() && !Thread.currentThread().isInterrupted()) {
+            sendRequest(targetUrl);
         }
     }
 }
