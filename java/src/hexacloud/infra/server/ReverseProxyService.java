@@ -12,6 +12,7 @@ import hexacloud.core.utils.network.ProxyResponse;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.util.ArrayList;
+import hexacloud.core.server.PerformanceProfile;
 import java.util.List;
 import java.util.Map;
 
@@ -19,10 +20,27 @@ public class ReverseProxyService {
     private final HttpProxyClient proxyClient;
     private final HttpErrorHandler errorHandler;
     private static final java.util.concurrent.ConcurrentLinkedQueue<byte[]> BUFFER_POOL = new java.util.concurrent.ConcurrentLinkedQueue<>();
+    private PerformanceProfile performanceProfile = PerformanceProfile.STANDARD;
 
     public ReverseProxyService(HttpProxyClient proxyClient, HttpErrorHandler errorHandler) {
         this.proxyClient = proxyClient != null ? proxyClient : new JdkHttpProxyClient();
         this.errorHandler = errorHandler != null ? errorHandler : new DefaultHttpErrorHandler();
+    }
+
+    public void setPerformanceProfile(PerformanceProfile profile) {
+        if (profile != null) {
+            this.performanceProfile = profile;
+        }
+    }
+
+    private int getMaxBufferPoolSize() {
+        String capProp = System.getProperty("gatebridge.buffer.pool.max");
+        if (capProp != null && !capProp.trim().isEmpty()) {
+            try {
+                return Integer.parseInt(capProp.trim());
+            } catch (NumberFormatException ignored) {}
+        }
+        return performanceProfile != null ? performanceProfile.getMaxBufferPoolSize() : 64;
     }
 
     public void proxyRequest(HttpRequest req, HttpResponse res, Cluster targetCluster, String subpath, int timeoutMs) {
@@ -113,7 +131,9 @@ public class ReverseProxyService {
                     }
                     out.flush();
                 } finally {
-                    BUFFER_POOL.offer(buffer);
+                    if (BUFFER_POOL.size() < getMaxBufferPoolSize()) {
+                        BUFFER_POOL.offer(buffer);
+                    }
                 }
             }
         } catch (Exception e) {

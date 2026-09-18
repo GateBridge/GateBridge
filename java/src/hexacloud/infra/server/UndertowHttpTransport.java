@@ -85,6 +85,7 @@ public class UndertowHttpTransport implements ServerTransport {
     public void setPerformanceProfile(hexacloud.core.server.PerformanceProfile profile) {
         if (profile != null) {
             this.performanceProfile = profile;
+            this.reverseProxyService.setPerformanceProfile(profile);
         }
     }
 
@@ -134,8 +135,7 @@ public class UndertowHttpTransport implements ServerTransport {
                 public void handleRequest(HttpServerExchange exchange) throws Exception {
                     String path = exchange.getRequestPath();
                     RouteResolution resolution = PathResolver.resolve(path, exchange.getRequestHeaders().getFirst(io.undertow.util.Headers.HOST), registry);
-                    boolean isFastPathEnabled = Boolean.parseBoolean(System.getProperty("gatebridge.fastpath.enabled", "true"));
-                    boolean canUseFastPath = isFastPathEnabled && resolution.isLocal() 
+                    boolean canUseFastPath = isFastPathEnabled() && resolution.isLocal() 
                             && registry.isRouteFastPath(resolution.localRouteName())
                             && (activeFilters.isEmpty() || (activeFilters.size() == 1 && activeFilters.get(0) instanceof CorsFilter));
 
@@ -243,7 +243,7 @@ public class UndertowHttpTransport implements ServerTransport {
             try {
                 UndertowHttpRequestImpl req = new UndertowHttpRequestImpl(exchange);
 
-                boolean canUseFastPath = resolution.isLocal() 
+                boolean canUseFastPath = isFastPathEnabled() && resolution.isLocal() 
                         && registry.isRouteFastPath(resolution.localRouteName())
                         && (activeFilters.isEmpty() || (activeFilters.size() == 1 && activeFilters.get(0) instanceof CorsFilter));
 
@@ -391,7 +391,15 @@ public class UndertowHttpTransport implements ServerTransport {
                 return Integer.parseInt(capProp.trim());
             } catch (NumberFormatException ignored) {}
         }
-        return 1500;
+        return performanceProfile != null ? performanceProfile.getActiveRequestsCap() : 0;
+    }
+
+    private boolean isFastPathEnabled() {
+        String fastPathProp = System.getProperty("gatebridge.fastpath.enabled");
+        if (fastPathProp != null && !fastPathProp.trim().isEmpty()) {
+            return Boolean.parseBoolean(fastPathProp.trim());
+        }
+        return performanceProfile != null && performanceProfile.isFastPathEnabled();
     }
 
     private void handleError(HttpServerExchange exchange, Exception e) {

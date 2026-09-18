@@ -234,4 +234,13 @@ public class UndertowHttpTransportTest {
             transport.stop();
         }
     }
+
+    @Test
+    public void testSetPerformanceProfile() {
+        UndertowHttpTransport transport = new UndertowHttpTransport();
+        assertDoesNotThrow(() -> transport.setPerformanceProfile(hexacloud.core.server.PerformanceProfile.BALANCED_1GB));
+        assertDoesNotThrow(() -> transport.setPerformanceProfile(hexacloud.core.server.PerformanceProfile.RESILIENT));
+        assertDoesNotThrow(() -> transport.setPerformanceProfile(hexacloud.core.server.PerformanceProfile.MAX_PERFORMANCE));
+        assertDoesNotThrow(() -> transport.setPerformanceProfile(hexacloud.core.server.PerformanceProfile.STANDARD));
+    }
 }
