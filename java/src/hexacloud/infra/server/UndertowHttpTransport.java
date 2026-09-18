@@ -96,13 +96,7 @@ public class UndertowHttpTransport implements ServerTransport {
     public void listen(int port, RouteRegistry registry, List<Cluster> clusters, List<HttpFilter> customFilters) {
         try {
             rebuildFilters(clusters, customFilters);
-            io.undertow.connector.ByteBufferPool bufferPool = new io.undertow.server.DefaultByteBufferPool(
-                    false, 
-                    8192, 
-                    -1, 
-                    2, 
-                    0
-            );
+            io.undertow.connector.ByteBufferPool bufferPool = createByteBufferPool();
             Undertow.Builder builder = Undertow.builder()
                     .addHttpListener(port, "0.0.0.0")
                     .setByteBufferPool(bufferPool);
@@ -188,12 +182,22 @@ public class UndertowHttpTransport implements ServerTransport {
     private static final io.undertow.util.HttpString HEADER_CORS_HEADERS = io.undertow.util.HttpString.tryFromString("Access-Control-Allow-Headers");
     private static final java.util.concurrent.atomic.AtomicLong ATOMIC_ID_COUNTER = new java.util.concurrent.atomic.AtomicLong(0);
 
-    private String generateConnectionId() {
-        String mode = System.getProperty("gatebridge.connection.id.generator", "uuid");
-        if ("atomic".equalsIgnoreCase(mode)) {
-            return String.valueOf(ATOMIC_ID_COUNTER.incrementAndGet());
+    io.undertow.connector.ByteBufferPool createByteBufferPool() {
+        return new io.undertow.server.DefaultByteBufferPool(
+                false, 
+                4096, 
+                512, 
+                2, 
+                0
+        );
+    }
+
+    String generateConnectionId() {
+        String mode = System.getProperty("gatebridge.connection.id.generator", "atomic");
+        if ("uuid".equalsIgnoreCase(mode)) {
+            return UUID.randomUUID().toString();
         }
-        return UUID.randomUUID().toString();
+        return String.valueOf(ATOMIC_ID_COUNTER.incrementAndGet());
     }
 
     private void processRequest(HttpServerExchange exchange, RouteRegistry registry, RouteResolution resolution) {
