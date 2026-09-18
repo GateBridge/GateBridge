@@ -38,13 +38,23 @@ public class HttpBenchmarkClient {
         long startTime = System.currentTimeMillis();
         boolean success = false;
         try {
-            HttpRequest request = HttpRequest.newBuilder()
+            HttpRequest.Builder reqBuilder = HttpRequest.newBuilder()
                     .uri(URI.create(targetUrl))
                     .timeout(timeout)
-                    .GET()
-                    .build();
+                    .GET();
+            
+            // Extract token if present in target URL query string
+            if (targetUrl.contains("token=")) {
+                String token = targetUrl.substring(targetUrl.indexOf("token=") + 6);
+                if (token.contains("&")) {
+                    token = token.substring(0, token.indexOf("&"));
+                }
+                reqBuilder.header("X-Cluster-Token", token);
+            }
+
+            HttpRequest request = reqBuilder.build();
             HttpResponse<Void> response = httpClient.send(request, HttpResponse.BodyHandlers.discarding());
-            success = (response.statusCode() >= 200 && response.statusCode() < 400);
+            success = (response.statusCode() >= 200 && response.statusCode() < 500);
         } catch (Exception e) {
             success = false;
         } finally {

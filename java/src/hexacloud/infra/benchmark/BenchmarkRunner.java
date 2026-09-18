@@ -229,10 +229,43 @@ public class BenchmarkRunner {
         return "OK";
     }
 
+    public static boolean checkPreflightConnectivity(String protocol, String target) {
+        try {
+            if ("http".equalsIgnoreCase(protocol) || "ws".equalsIgnoreCase(protocol)) {
+                String httpUrl = target.replaceFirst("(?i)^ws://", "http://").replaceFirst("(?i)^wss://", "https://");
+                java.net.http.HttpClient client = java.net.http.HttpClient.newBuilder().connectTimeout(java.time.Duration.ofSeconds(1)).build();
+                java.net.http.HttpRequest req = java.net.http.HttpRequest.newBuilder().uri(java.net.URI.create(httpUrl)).timeout(java.time.Duration.ofSeconds(1)).GET().build();
+                client.send(req, java.net.http.HttpResponse.BodyHandlers.discarding());
+                return true;
+            } else {
+                String host = target;
+                int port = 8080;
+                if (target.contains(":")) {
+                    String[] parts = target.split(":");
+                    host = parts[0];
+                    port = Integer.parseInt(parts[1]);
+                }
+                try (java.net.Socket s = new java.net.Socket()) {
+                    s.connect(new java.net.InetSocketAddress(host, port), 1000);
+                    return true;
+                }
+            }
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
     public BenchmarkResult runBenchmark(Config config) {
         String mode = config.getMode().toLowerCase();
         String protocol = config.getProtocol().toLowerCase();
         String target = config.getTarget();
+
+        if (!checkPreflightConnectivity(protocol, target)) {
+            System.err.println("[WARNING] Target endpoint '" + target + "' is unreachable!");
+            System.err.println("[WARNING] Make sure the GateBridge server is running before executing benchmarks.");
+            System.err.println("[WARNING] Quick start command: mvn compile exec:java -Dexec.mainClass=\"hexacloud.application.MinimalApplication\"\n");
+        }
+
         List<StepResult> steps = new ArrayList<>();
 
         int maxStableConcurrency = 0;
