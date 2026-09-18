@@ -102,6 +102,7 @@ public class TcpBenchmarkClient {
                 socket = null;
                 os = null;
                 is = null;
+                try { Thread.sleep(50); } catch (InterruptedException ignored) {}
             } finally {
                 long latencyMs = System.currentTimeMillis() - startTime;
                 metricsCollector.recordRequest(latencyMs, success);

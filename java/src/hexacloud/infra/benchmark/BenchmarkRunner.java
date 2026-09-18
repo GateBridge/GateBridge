@@ -277,7 +277,6 @@ public class BenchmarkRunner {
         WsBenchmarkClient wsClient = "ws".equalsIgnoreCase(protocol) ? new WsBenchmarkClient(metrics) : null;
         TelnetBenchmarkClient telnetClient = "telnet".equalsIgnoreCase(protocol) ? new TelnetBenchmarkClient(metrics) : null;
 
-        long startTime = System.currentTimeMillis();
         long actualDurationMs;
 
         try (ExecutorService executor = ThreadManager.newVirtualThreadPool()) {
@@ -308,6 +307,7 @@ public class BenchmarkRunner {
             }
 
             startLatch.countDown();
+            long startTime = System.currentTimeMillis();
 
             try {
                 Thread.sleep(durationSeconds * 1000L);

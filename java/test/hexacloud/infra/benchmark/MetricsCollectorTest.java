@@ -37,11 +37,11 @@ public class MetricsCollectorTest {
             collector.recordRequest(i, true);
         }
 
-        assertEquals(100, collector.getPercentileLatency(50.0));
-        assertEquals(100, collector.getPercentileLatency(90.0));
-        assertEquals(100, collector.getPercentileLatency(99.0));
-        assertEquals(250, collector.getPercentileLatency(100.0));
-        assertEquals(5, collector.getPercentileLatency(0.0));
+        assertEquals(50, collector.getPercentileLatency(50.0));
+        assertEquals(90, collector.getPercentileLatency(90.0));
+        assertEquals(99, collector.getPercentileLatency(99.0));
+        assertEquals(100, collector.getPercentileLatency(100.0));
+        assertEquals(1, collector.getPercentileLatency(0.0));
     }
 
     @Test

@@ -5,40 +5,12 @@ import java.util.concurrent.atomic.LongAdder;
 public class MetricsCollector {
     private final LongAdder totalRequests = new LongAdder();
     private final LongAdder errorRequests = new LongAdder();
-    private final LongAdder[] buckets = new LongAdder[11];
-
-    private static final long[] BUCKET_UPPER_BOUNDS = {
-        0,    // <1ms
-        5,    // 1-5ms
-        10,   // 5-10ms
-        25,   // 10-25ms
-        50,   // 25-50ms
-        100,  // 50-100ms
-        250,  // 100-250ms
-        500,  // 250-500ms
-        1000, // 500-1000ms
-        2000, // 1000-2000ms
-        2001  // >2000ms
-    };
+    private final LongAdder[] latencyBuckets = new LongAdder[2002];
 
     public MetricsCollector() {
-        for (int i = 0; i < buckets.length; i++) {
-            buckets[i] = new LongAdder();
+        for (int i = 0; i < latencyBuckets.length; i++) {
+            latencyBuckets[i] = new LongAdder();
         }
-    }
-
-    private int getBucketIndex(long latencyMs) {
-        if (latencyMs < 1) return 0;
-        if (latencyMs < 5) return 1;
-        if (latencyMs < 10) return 2;
-        if (latencyMs < 25) return 3;
-        if (latencyMs < 50) return 4;
-        if (latencyMs < 100) return 5;
-        if (latencyMs < 250) return 6;
-        if (latencyMs < 500) return 7;
-        if (latencyMs < 1000) return 8;
-        if (latencyMs < 2000) return 9;
-        return 10;
     }
 
     public void recordRequest(long latencyMs, boolean success) {
@@ -46,8 +18,8 @@ public class MetricsCollector {
         if (!success) {
             errorRequests.increment();
         }
-        int bucket = getBucketIndex(latencyMs);
-        buckets[bucket].increment();
+        int index = (int) Math.min(2001, Math.max(0, latencyMs));
+        latencyBuckets[index].increment();
     }
 
     public long getTotalRequests() {
@@ -71,19 +43,19 @@ public class MetricsCollector {
         if (targetCount <= 0) targetCount = 1;
 
         long accumulated = 0;
-        for (int i = 0; i < buckets.length; i++) {
-            accumulated += buckets[i].sum();
+        for (int i = 0; i < latencyBuckets.length; i++) {
+            accumulated += latencyBuckets[i].sum();
             if (accumulated >= targetCount) {
-                return BUCKET_UPPER_BOUNDS[i];
+                return i;
             }
         }
-        return BUCKET_UPPER_BOUNDS[buckets.length - 1];
+        return 2001;
     }
 
     public synchronized void reset() {
         totalRequests.reset();
         errorRequests.reset();
-        for (LongAdder bucket : buckets) {
+        for (LongAdder bucket : latencyBuckets) {
             bucket.reset();
         }
     }
