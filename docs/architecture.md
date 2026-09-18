@@ -43,6 +43,7 @@ Welcome to the comprehensive architecture guide for **GateBridge**. This documen
    - [Non-Blocking Loom Execution Standards](#non-blocking-loom-execution-standards)
    - [Clean Port Interface Decoupling](#clean-port-interface-decoupling)
    - [Thread-Safe State Persistence Standards](#thread-safe-state-persistence-standards)
+   - [Multi-Level Benchmark Suite & Performance Tooling](#multi-level-benchmark-suite--performance-tooling)
 9. [Related Documentation](#9-related-documentation)
 
 ---
@@ -842,6 +843,39 @@ Hardcoded numeric literals and literal string escape sequences are strictly proh
    }
    ```
 2. **Secret Exclusion**: Never serialize sensitive credentials, tokens, or private keys to `.state/*.properties` disk files. Secrets are runtime-only and must be supplied via environment variables, code configuration, or external vaults.
+
+### Multi-Level Benchmark Suite & Performance Tooling
+
+GateBridge includes a built-in, Loom-native benchmark engine (`hexacloud.infra.benchmark.BenchmarkRunner`) for load generation and throughput verification across all supported gateway protocols without requiring external benchmarking tools like ApacheBench or wrk.
+
+#### CLI Wrapper Script (`scripts/benchmark.sh`)
+
+Developers and CI automation invoke the benchmark suite via the executable wrapper script:
+
+```bash
+./scripts/benchmark.sh [--mode=quick|stress] [--protocol=http|tcp|ws|telnet|all] [--target=URL]
+```
+
+#### Execution Modes (`--mode`)
+- **`quick`** (Default): High-speed smoke test running 100 concurrent virtual threads for 5 seconds to verify server responsiveness and transport health under load.
+- **`stress`**: Step-based capacity profiling that progressively ramps up virtual thread concurrency across 8 steps (`100, 500, 1000, 2500, 5000, 10000, 25000, 50000` clients) for 10 seconds per step to discover maximum stable RPS throughput and bottlenecks.
+
+#### Protocol Support (`--protocol`)
+- **`http`**: Evaluates HTTP GET request/response throughput and latency.
+- **`tcp`**: Evaluates L4 socket connect, echo payload transmission, and disconnect latency.
+- **`ws`**: Evaluates WebSocket handshake and real-time frame transmission.
+- **`telnet`**: Evaluates Telnet session creation and command execution loop performance.
+- **`all`**: Runs benchmark sweeps across all four protocols sequentially.
+
+#### Automated Stopping Criteria
+During stress testing, the benchmark runner monitors runtime SLAs and automatically terminates the ramp-up sweep when either bottleneck condition occurs:
+1. **Error Rate Limit**: Error rate exceeds **1.0%** of total requests.
+2. **Latency Degradation**: 99th percentile (p99) latency exceeds **2,000 ms**.
+
+Upon reaching a stopping threshold, the test halts immediately, records the last stable step as maximum throughput capacity, and formats a summary report.
+
+#### Fast-Path Bypass Enforcement
+To guarantee production realism, benchmark tests **enforce Fast-Path Bypass: DISABLED**. All generated traffic must flow through standard transport listeners, `HttpFilterChainImpl` security filters, route resolution (`PathResolver`), round-robin load balancer policies, and standard response writers. Benchmark results accurately reflect real-world end-to-end proxy performance.
 
 ---
 
