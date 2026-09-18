@@ -20,6 +20,7 @@ import hexacloud.core.utils.common.DebugUtils;
 import hexacloud.core.config.ClusterConfig;
 import hexacloud.core.config.ClusterStatePersistence;
 import hexacloud.core.cluster.ClusterRegistry;
+import hexacloud.core.server.PerformanceProfile;
 import hexacloud.core.server.route.RouteRule;
 
 class LocalGatewayAdapter implements GatewayBuilderPort, RunningGatewayPort {
@@ -434,6 +435,10 @@ class LocalGatewayAdapter implements GatewayBuilderPort, RunningGatewayPort {
             }
         }
         return this;
+    }
+
+    public PerformanceProfile getPerformanceProfile() {
+        return this.performanceProfile;
     }
 
     @Override
