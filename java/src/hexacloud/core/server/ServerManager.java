@@ -189,6 +189,9 @@ public class ServerManager implements ServerOperations {
     public void setPerformanceProfile(hexacloud.core.server.PerformanceProfile performanceProfile) {
         if (performanceProfile != null) {
             this.performanceProfile = performanceProfile;
+            for (ServerTransport transport : activeTransports) {
+                transport.setPerformanceProfile(performanceProfile);
+            }
         }
     }
 

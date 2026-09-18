@@ -95,6 +95,10 @@ public class HttpTransport implements ServerTransport {
         }
     }
 
+    public hexacloud.core.server.PerformanceProfile getPerformanceProfile() {
+        return performanceProfile;
+    }
+
     public void setSslContext(hexacloud.core.ports.SslContextPort sslContextPort) {
         this.sslContextPort = sslContextPort;
     }

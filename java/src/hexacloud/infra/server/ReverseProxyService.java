@@ -15,14 +15,18 @@ import java.util.ArrayList;
 import hexacloud.core.server.PerformanceProfile;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicInteger;
 
 public class ReverseProxyService {
+    private static final boolean IS_CONNECTION_POOL_EXPLICIT = System.getProperty("jdk.httpclient.connectionPoolSize") != null;
     private final HttpProxyClient proxyClient;
     private final HttpErrorHandler errorHandler;
     private static final java.util.concurrent.ConcurrentLinkedQueue<byte[]> BUFFER_POOL = new java.util.concurrent.ConcurrentLinkedQueue<>();
+    private static final AtomicInteger bufferCount = new AtomicInteger(0);
     private PerformanceProfile performanceProfile = PerformanceProfile.STANDARD;
 
     public ReverseProxyService(HttpProxyClient proxyClient, HttpErrorHandler errorHandler) {
+        setPerformanceProfile(this.performanceProfile);
         this.proxyClient = proxyClient != null ? proxyClient : new JdkHttpProxyClient();
         this.errorHandler = errorHandler != null ? errorHandler : new DefaultHttpErrorHandler();
     }
@@ -30,6 +34,9 @@ public class ReverseProxyService {
     public void setPerformanceProfile(PerformanceProfile profile) {
         if (profile != null) {
             this.performanceProfile = profile;
+            if (!IS_CONNECTION_POOL_EXPLICIT) {
+                System.setProperty("jdk.httpclient.connectionPoolSize", String.valueOf(profile.getConnectionPoolSize()));
+            }
         }
     }
 
@@ -121,7 +128,9 @@ public class ReverseProxyService {
 
             try (InputStream in = response.bodyStream(); OutputStream out = res.getOutputStream()) {
                 byte[] buffer = BUFFER_POOL.poll();
-                if (buffer == null) {
+                if (buffer != null) {
+                    bufferCount.decrementAndGet();
+                } else {
                     buffer = new byte[8192];
                 }
                 try {
@@ -131,8 +140,9 @@ public class ReverseProxyService {
                     }
                     out.flush();
                 } finally {
-                    if (BUFFER_POOL.size() < getMaxBufferPoolSize()) {
+                    if (bufferCount.get() < getMaxBufferPoolSize()) {
                         BUFFER_POOL.offer(buffer);
+                        bufferCount.incrementAndGet();
                     }
                 }
             }

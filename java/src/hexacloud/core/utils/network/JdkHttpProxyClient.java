@@ -11,13 +11,17 @@ import java.util.List;
 
 public class JdkHttpProxyClient implements HttpProxyClient {
     static {
-        System.setProperty("jdk.httpclient.connectionPoolSize", "500");
+        if (System.getProperty("jdk.httpclient.connectionPoolSize") == null) {
+            System.setProperty("jdk.httpclient.connectionPoolSize", "500");
+        }
     }
 
     private final HttpClient client;
 
     public JdkHttpProxyClient() {
-        System.setProperty("jdk.httpclient.connectionPoolSize", "500");
+        if (System.getProperty("jdk.httpclient.connectionPoolSize") == null) {
+            System.setProperty("jdk.httpclient.connectionPoolSize", "500");
+        }
         this.client = HttpClient.newBuilder()
                 .version(HttpClient.Version.HTTP_1_1)
                 .connectTimeout(Duration.ofSeconds(5))
