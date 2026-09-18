@@ -35,6 +35,22 @@ public class BenchmarkRunnerTest {
     }
 
     @Test
+    public void testParseArgsInvalidMode() {
+        Exception exception = assertThrows(IllegalArgumentException.class, () -> {
+            BenchmarkRunner.parseArgs(new String[]{"--mode=invalid"});
+        });
+        assertTrue(exception.getMessage().contains("Invalid mode"));
+    }
+
+    @Test
+    public void testParseArgsInvalidProtocol() {
+        Exception exception = assertThrows(IllegalArgumentException.class, () -> {
+            BenchmarkRunner.parseArgs(new String[]{"--protocol=invalid"});
+        });
+        assertTrue(exception.getMessage().contains("Invalid protocol"));
+    }
+
+    @Test
     public void testProtocolAllDefaultTargetResolution() {
         BenchmarkRunner.Config config = BenchmarkRunner.parseArgs(new String[]{"--protocol=all"});
         assertNull(config.getRawTarget());

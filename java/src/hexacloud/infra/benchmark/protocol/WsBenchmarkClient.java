@@ -11,6 +11,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicLong;
 
 public class WsBenchmarkClient {
     private final HttpClient httpClient;
@@ -86,7 +87,83 @@ public class WsBenchmarkClient {
     public void runClientLoop(String targetUrl, AtomicBoolean running) {
         String wsUrl = normalizeWsUrl(targetUrl);
         while (running.get() && !Thread.currentThread().isInterrupted()) {
-            sendRequest(wsUrl);
+            long connectStartTime = System.currentTimeMillis();
+            AtomicLong lastFrameTime = new AtomicLong(connectStartTime);
+            AtomicBoolean closed = new AtomicBoolean(false);
+
+            try {
+                CompletableFuture<WebSocket> wsFuture = httpClient.newWebSocketBuilder()
+                        .connectTimeout(timeout)
+                        .buildAsync(URI.create(wsUrl), new WebSocket.Listener() {
+                            @Override
+                            public void onOpen(WebSocket webSocket) {
+                                lastFrameTime.set(System.currentTimeMillis());
+                                webSocket.request(1);
+                            }
+
+                            @Override
+                            public CompletionStage<?> onText(WebSocket webSocket, CharSequence data, boolean last) {
+                                long now = System.currentTimeMillis();
+                                long prev = lastFrameTime.getAndSet(now);
+                                long latencyMs = Math.max(0, now - prev);
+                                metricsCollector.recordRequest(latencyMs, true);
+                                webSocket.request(1);
+                                return CompletableFuture.completedFuture(null);
+                            }
+
+                            @Override
+                            public CompletionStage<?> onBinary(WebSocket webSocket, ByteBuffer data, boolean last) {
+                                long now = System.currentTimeMillis();
+                                long prev = lastFrameTime.getAndSet(now);
+                                long latencyMs = Math.max(0, now - prev);
+                                metricsCollector.recordRequest(latencyMs, true);
+                                webSocket.request(1);
+                                return CompletableFuture.completedFuture(null);
+                            }
+
+                            @Override
+                            public void onError(WebSocket webSocket, Throwable error) {
+                                long now = System.currentTimeMillis();
+                                long prev = lastFrameTime.getAndSet(now);
+                                long latencyMs = Math.max(0, now - prev);
+                                metricsCollector.recordRequest(latencyMs, false);
+                                closed.set(true);
+                            }
+
+                            @Override
+                            public CompletionStage<?> onClose(WebSocket webSocket, int statusCode, String reason) {
+                                closed.set(true);
+                                return CompletableFuture.completedFuture(null);
+                            }
+                        });
+
+                WebSocket ws = wsFuture.get(timeout.toMillis(), TimeUnit.MILLISECONDS);
+
+                while (running.get() && !Thread.currentThread().isInterrupted() && !closed.get()) {
+                    try {
+                        Thread.sleep(50);
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                        break;
+                    }
+                }
+
+                if (ws != null) {
+                    try {
+                        ws.sendClose(WebSocket.NORMAL_CLOSURE, "close");
+                    } catch (Exception ignored) {}
+                }
+            } catch (Exception e) {
+                long latencyMs = System.currentTimeMillis() - connectStartTime;
+                metricsCollector.recordRequest(latencyMs, false);
+                if (running.get() && !Thread.currentThread().isInterrupted()) {
+                    try {
+                        Thread.sleep(100);
+                    } catch (InterruptedException ie) {
+                        Thread.currentThread().interrupt();
+                    }
+                }
+            }
         }
     }
 

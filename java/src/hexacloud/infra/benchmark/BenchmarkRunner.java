@@ -189,6 +189,23 @@ public class BenchmarkRunner {
                 config.setTarget(args[++i]);
             }
         }
+
+        if (!config.isHelpRequested()) {
+            String mode = config.getMode();
+            if (mode == null || (!mode.equalsIgnoreCase("quick") && !mode.equalsIgnoreCase("stress"))) {
+                throw new IllegalArgumentException("Invalid mode: '" + mode + "'. Valid modes are: quick, stress");
+            }
+
+            String protocol = config.getProtocol();
+            if (protocol == null || (!protocol.equalsIgnoreCase("http")
+                    && !protocol.equalsIgnoreCase("tcp")
+                    && !protocol.equalsIgnoreCase("ws")
+                    && !protocol.equalsIgnoreCase("telnet")
+                    && !protocol.equalsIgnoreCase("all"))) {
+                throw new IllegalArgumentException("Invalid protocol: '" + protocol + "'. Valid protocols are: http, tcp, ws, telnet, all");
+            }
+        }
+
         return config;
     }
 
@@ -261,6 +278,7 @@ public class BenchmarkRunner {
         TelnetBenchmarkClient telnetClient = "telnet".equalsIgnoreCase(protocol) ? new TelnetBenchmarkClient(metrics) : null;
 
         long startTime = System.currentTimeMillis();
+        long actualDurationMs;
 
         try (ExecutorService executor = ThreadManager.newVirtualThreadPool()) {
             for (int i = 0; i < concurrency; i++) {
@@ -297,11 +315,13 @@ public class BenchmarkRunner {
                 Thread.currentThread().interrupt();
             }
 
+            long endTime = System.currentTimeMillis();
+            actualDurationMs = Math.max(1, endTime - startTime);
+
             running.set(false);
             executor.shutdownNow();
         }
 
-        long actualDurationMs = Math.max(1, System.currentTimeMillis() - startTime);
         double durationSec = actualDurationMs / 1000.0;
 
         long totalReqs = metrics.getTotalRequests();
