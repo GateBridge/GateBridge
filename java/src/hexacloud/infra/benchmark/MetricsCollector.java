@@ -49,6 +49,8 @@ public class MetricsCollector {
     public void reset() {
         totalRequests.reset();
         errorRequests.reset();
-        latencies.clear();
+        synchronized (latencies) {
+            latencies.clear();
+        }
     }
 }

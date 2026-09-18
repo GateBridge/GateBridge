@@ -11,6 +11,7 @@ import java.time.Duration;
 public class HttpBenchmarkClient {
     private final HttpClient httpClient;
     private final MetricsCollector metricsCollector;
+    private final Duration timeout;
 
     public HttpBenchmarkClient(MetricsCollector metricsCollector) {
         this(metricsCollector, Duration.ofSeconds(5));
@@ -18,6 +19,7 @@ public class HttpBenchmarkClient {
 
     public HttpBenchmarkClient(MetricsCollector metricsCollector, Duration timeout) {
         this.metricsCollector = metricsCollector;
+        this.timeout = timeout;
         this.httpClient = HttpClient.newBuilder()
                 .connectTimeout(timeout)
                 .build();
@@ -33,7 +35,7 @@ public class HttpBenchmarkClient {
         try {
             HttpRequest request = HttpRequest.newBuilder()
                     .uri(URI.create(targetUrl))
-                    .timeout(Duration.ofSeconds(5))
+                    .timeout(timeout)
                     .GET()
                     .build();
             HttpResponse<Void> response = httpClient.send(request, HttpResponse.BodyHandlers.discarding());
