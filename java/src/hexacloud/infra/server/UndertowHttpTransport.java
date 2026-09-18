@@ -116,7 +116,7 @@ public class UndertowHttpTransport implements ServerTransport {
                         .setServerOption(UndertowOptions.BUFFER_PIPELINED_DATA, false)
                         .setServerOption(UndertowOptions.RECORD_REQUEST_START_TIME, false)
                         .setServerOption(UndertowOptions.ENABLE_STATISTICS, false)
-                        .setSocketOption(org.xnio.Options.BACKLOG, 8192)
+                        .setSocketOption(org.xnio.Options.BACKLOG, 16384)
                         .setSocketOption(org.xnio.Options.TCP_NODELAY, true)
                         .setSocketOption(org.xnio.Options.REUSE_ADDRESSES, true)
                         .setIoThreads(Math.max(Runtime.getRuntime().availableProcessors(), 2))
@@ -126,7 +126,7 @@ public class UndertowHttpTransport implements ServerTransport {
                         .setServerOption(UndertowOptions.BUFFER_PIPELINED_DATA, false)
                         .setServerOption(UndertowOptions.RECORD_REQUEST_START_TIME, false)
                         .setServerOption(UndertowOptions.ENABLE_STATISTICS, false)
-                        .setSocketOption(org.xnio.Options.BACKLOG, 1024)
+                        .setSocketOption(org.xnio.Options.BACKLOG, 8192)
                         .setSocketOption(org.xnio.Options.TCP_NODELAY, true)
                         .setSocketOption(org.xnio.Options.REUSE_ADDRESSES, true)
                         .setIoThreads(Math.max(Runtime.getRuntime().availableProcessors() / 2, 2))
@@ -140,9 +140,8 @@ public class UndertowHttpTransport implements ServerTransport {
                 public void handleRequest(HttpServerExchange exchange) throws Exception {
                     String path = exchange.getRequestPath();
                     RouteResolution resolution = PathResolver.resolve(path, exchange.getRequestHeaders().getFirst(io.undertow.util.Headers.HOST), registry);
-                    boolean fastPathEnabled = Boolean.parseBoolean(System.getProperty("gatebridge.fastpath.enabled", "true"));
-                    boolean canUseFastPath = fastPathEnabled
-                            && resolution.isLocal() 
+                    boolean isFastPathEnabled = Boolean.parseBoolean(System.getProperty("gatebridge.fastpath.enabled", "true"));
+                    boolean canUseFastPath = isFastPathEnabled && resolution.isLocal() 
                             && registry.isRouteFastPath(resolution.localRouteName())
                             && (activeFilters.isEmpty() || (activeFilters.size() == 1 && activeFilters.get(0) instanceof CorsFilter));
 
@@ -151,33 +150,23 @@ public class UndertowHttpTransport implements ServerTransport {
                         return;
                     }
 
+                    int cap = getActiveRequestsCap();
                     if (exchange.isInIoThread()) {
-                        int cap = getActiveRequestsCap();
-                        if (cap > 0) {
-                            if (activeRequests.incrementAndGet() <= cap) {
-                                exchange.dispatch(virtualExecutor, () -> {
-                                    try {
-                                        processRequest(exchange, registry, resolution);
-                                    } catch (Exception e) {
-                                        handleError(exchange, e);
-                                    } finally {
-                                        activeRequests.decrementAndGet();
-                                    }
-                                });
-                            } else {
-                                activeRequests.decrementAndGet();
-                                exchange.setStatusCode(503);
-                                exchange.getResponseHeaders().put(io.undertow.util.Headers.CONTENT_TYPE, "text/plain");
-                                exchange.getResponseSender().send("503 Service Unavailable - Gateway Overloaded");
-                            }
-                        } else {
+                        if (cap <= 0 || activeRequests.incrementAndGet() <= cap) {
                             exchange.dispatch(virtualExecutor, () -> {
                                 try {
                                     processRequest(exchange, registry, resolution);
                                 } catch (Exception e) {
                                     handleError(exchange, e);
+                                } finally {
+                                    if (cap > 0) activeRequests.decrementAndGet();
                                 }
                             });
+                        } else {
+                            if (cap > 0) activeRequests.decrementAndGet();
+                            exchange.setStatusCode(503);
+                            exchange.getResponseHeaders().put(io.undertow.util.Headers.CONTENT_TYPE, "text/plain");
+                            exchange.getResponseSender().send("503 Service Unavailable - Gateway Overloaded");
                         }
                         return;
                     }
@@ -197,14 +186,24 @@ public class UndertowHttpTransport implements ServerTransport {
     private static final io.undertow.util.HttpString HEADER_CORS_ORIGIN = io.undertow.util.HttpString.tryFromString("Access-Control-Allow-Origin");
     private static final io.undertow.util.HttpString HEADER_CORS_METHODS = io.undertow.util.HttpString.tryFromString("Access-Control-Allow-Methods");
     private static final io.undertow.util.HttpString HEADER_CORS_HEADERS = io.undertow.util.HttpString.tryFromString("Access-Control-Allow-Headers");
+    private static final java.util.concurrent.atomic.AtomicLong ATOMIC_ID_COUNTER = new java.util.concurrent.atomic.AtomicLong(0);
+
+    private String generateConnectionId() {
+        String mode = System.getProperty("gatebridge.connection.id.generator", "uuid");
+        if ("atomic".equalsIgnoreCase(mode)) {
+            return String.valueOf(ATOMIC_ID_COUNTER.incrementAndGet());
+        }
+        return UUID.randomUUID().toString();
+    }
 
     private void processRequest(HttpServerExchange exchange, RouteRegistry registry, RouteResolution resolution) {
         ConnectionContext ctx = null;
-        if (connectionRegistry != null) {
+        boolean registryEnabled = Boolean.parseBoolean(System.getProperty("gatebridge.connection.registry.enabled", "true"));
+        if (registryEnabled && connectionRegistry != null) {
             String remoteAddr = exchange.getSourceAddress() != null
                     ? exchange.getSourceAddress().toString()
                     : "unknown";
-            ctx = new ConnectionContextImpl(UUID.randomUUID().toString(), "HTTP", remoteAddr);
+            ctx = new ConnectionContextImpl(generateConnectionId(), "HTTP", remoteAddr);
             connectionRegistry.registerConnection(ctx);
         }
         try {
