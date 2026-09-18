@@ -28,6 +28,10 @@ public class TcpBenchmarkClient {
     }
 
     public void executeRequest(String host, int port, byte[] payload) {
+        executeRequest(host, port, payload, null);
+    }
+
+    public void executeRequest(String host, int port, byte[] payload, AtomicBoolean running) {
         long startTime = System.currentTimeMillis();
         boolean success = false;
         try (Socket socket = new Socket()) {
@@ -48,7 +52,9 @@ public class TcpBenchmarkClient {
             success = false;
         } finally {
             long latencyMs = System.currentTimeMillis() - startTime;
-            metricsCollector.recordRequest(latencyMs, success);
+            if (success || ((running == null || running.get()) && !Thread.currentThread().isInterrupted())) {
+                metricsCollector.recordRequest(latencyMs, success);
+            }
         }
     }
 
@@ -102,10 +108,12 @@ public class TcpBenchmarkClient {
                 socket = null;
                 os = null;
                 is = null;
-                try { Thread.sleep(50); } catch (InterruptedException ignored) {}
+                try { Thread.sleep(50); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); }
             } finally {
                 long latencyMs = System.currentTimeMillis() - startTime;
-                metricsCollector.recordRequest(latencyMs, success);
+                if (success || (running.get() && !Thread.currentThread().isInterrupted())) {
+                    metricsCollector.recordRequest(latencyMs, success);
+                }
             }
         }
         closeQuietly(socket);

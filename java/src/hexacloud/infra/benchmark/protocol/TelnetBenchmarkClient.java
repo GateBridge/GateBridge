@@ -29,6 +29,10 @@ public class TelnetBenchmarkClient {
     }
 
     public void executeRequest(String host, int port, String command) {
+        executeRequest(host, port, command, null);
+    }
+
+    public void executeRequest(String host, int port, String command, AtomicBoolean running) {
         long startTime = System.currentTimeMillis();
         boolean success = false;
         try (Socket socket = new Socket()) {
@@ -46,7 +50,9 @@ public class TelnetBenchmarkClient {
             success = false;
         } finally {
             long latencyMs = System.currentTimeMillis() - startTime;
-            metricsCollector.recordRequest(latencyMs, success);
+            if (success || ((running == null || running.get()) && !Thread.currentThread().isInterrupted())) {
+                metricsCollector.recordRequest(latencyMs, success);
+            }
         }
     }
 
@@ -95,10 +101,12 @@ public class TelnetBenchmarkClient {
                 socket = null;
                 os = null;
                 reader = null;
-                try { Thread.sleep(50); } catch (InterruptedException ignored) {}
+                try { Thread.sleep(50); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); }
             } finally {
                 long latencyMs = System.currentTimeMillis() - startTime;
-                metricsCollector.recordRequest(latencyMs, success);
+                if (success || (running.get() && !Thread.currentThread().isInterrupted())) {
+                    metricsCollector.recordRequest(latencyMs, success);
+                }
             }
         }
         closeQuietly(socket);

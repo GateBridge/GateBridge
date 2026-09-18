@@ -35,6 +35,10 @@ public class WsBenchmarkClient {
     }
 
     public void sendRequest(String targetUrl) {
+        sendRequest(targetUrl, null);
+    }
+
+    public void sendRequest(String targetUrl, AtomicBoolean running) {
         long startTime = System.currentTimeMillis();
         boolean success = false;
         try {
@@ -80,7 +84,9 @@ public class WsBenchmarkClient {
             success = false;
         } finally {
             long latencyMs = System.currentTimeMillis() - startTime;
-            metricsCollector.recordRequest(latencyMs, success);
+            if (success || ((running == null || running.get()) && !Thread.currentThread().isInterrupted())) {
+                metricsCollector.recordRequest(latencyMs, success);
+            }
         }
     }
 
@@ -126,7 +132,9 @@ public class WsBenchmarkClient {
                                 long now = System.currentTimeMillis();
                                 long prev = lastFrameTime.getAndSet(now);
                                 long latencyMs = Math.max(0, now - prev);
-                                metricsCollector.recordRequest(latencyMs, false);
+                                if (running.get() && !Thread.currentThread().isInterrupted()) {
+                                    metricsCollector.recordRequest(latencyMs, false);
+                                }
                                 closed.set(true);
                             }
 
@@ -155,8 +163,8 @@ public class WsBenchmarkClient {
                 }
             } catch (Exception e) {
                 long latencyMs = System.currentTimeMillis() - connectStartTime;
-                metricsCollector.recordRequest(latencyMs, false);
                 if (running.get() && !Thread.currentThread().isInterrupted()) {
+                    metricsCollector.recordRequest(latencyMs, false);
                     try {
                         Thread.sleep(100);
                     } catch (InterruptedException ie) {

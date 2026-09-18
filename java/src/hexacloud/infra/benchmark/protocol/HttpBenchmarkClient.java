@@ -31,6 +31,10 @@ public class HttpBenchmarkClient {
     }
 
     public void sendRequest(String targetUrl) {
+        sendRequest(targetUrl, null);
+    }
+
+    public void sendRequest(String targetUrl, AtomicBoolean running) {
         long startTime = System.currentTimeMillis();
         boolean success = false;
         try {
@@ -45,13 +49,15 @@ public class HttpBenchmarkClient {
             success = false;
         } finally {
             long latencyMs = System.currentTimeMillis() - startTime;
-            metricsCollector.recordRequest(latencyMs, success);
+            if (success || ((running == null || running.get()) && !Thread.currentThread().isInterrupted())) {
+                metricsCollector.recordRequest(latencyMs, success);
+            }
         }
     }
 
     public void runClientLoop(String targetUrl, AtomicBoolean running) {
         while (running.get() && !Thread.currentThread().isInterrupted()) {
-            sendRequest(targetUrl);
+            sendRequest(targetUrl, running);
         }
     }
 }

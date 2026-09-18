@@ -209,19 +209,22 @@ public class BenchmarkRunner {
         return config;
     }
 
+    public static final double DEFAULT_MAX_ERROR_RATE_PERCENT = 1.0;
+    public static final long DEFAULT_MAX_P99_LATENCY_MS = 2000L;
+
     public static boolean isStoppingCondition(double errorPercentage, long p99LatencyMs) {
-        return errorPercentage > 1.0 || p99LatencyMs > 2000;
+        return errorPercentage > DEFAULT_MAX_ERROR_RATE_PERCENT || p99LatencyMs > DEFAULT_MAX_P99_LATENCY_MS;
     }
 
     public static String determineStatus(double errorPercentage, long p99LatencyMs) {
-        boolean errStop = errorPercentage > 1.0;
-        boolean latStop = p99LatencyMs > 2000;
+        boolean errStop = errorPercentage > DEFAULT_MAX_ERROR_RATE_PERCENT;
+        boolean latStop = p99LatencyMs > DEFAULT_MAX_P99_LATENCY_MS;
         if (errStop && latStop) {
-            return "STOPPED (error > 1.0%, p99 > 2000ms)";
+            return String.format("STOPPED (error > %.1f%%, p99 > %dms)", DEFAULT_MAX_ERROR_RATE_PERCENT, DEFAULT_MAX_P99_LATENCY_MS);
         } else if (errStop) {
-            return "STOPPED (error > 1.0%)";
+            return String.format("STOPPED (error > %.1f%%)", DEFAULT_MAX_ERROR_RATE_PERCENT);
         } else if (latStop) {
-            return "STOPPED (p99 > 2000ms)";
+            return String.format("STOPPED (p99 > %dms)", DEFAULT_MAX_P99_LATENCY_MS);
         }
         return "OK";
     }
