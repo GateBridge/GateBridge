@@ -45,6 +45,7 @@ public class TuiState {
         public String gatewayName = "";
         public String clusterName = "";
         public int port = 3000;
+        public int adminPort = 9090;
         public int pingInterval = 5;
         public boolean telnetEnabled = true;
         public boolean httpEnabled = true;

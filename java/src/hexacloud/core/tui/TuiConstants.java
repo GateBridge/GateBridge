@@ -23,6 +23,7 @@ public final class TuiConstants {
     public static final int VIEW_NODE_CONFIG = 3;
 
     // Active Panel Focus
+    public static final int PANEL_TREE = 0;
     public static final int PANEL_CLUSTERS = 0;
     public static final int PANEL_SERVICES = 1;
     public static final int PANEL_GATEWAYS = 2;

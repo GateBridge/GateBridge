@@ -1,13 +1,19 @@
 package hexacloud.core.tui.view;
 
+import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
+import hexacloud.core.cluster.Cluster;
+import hexacloud.core.cluster.ClusterRegistry;
 import hexacloud.core.event.TuiEvent;
 import hexacloud.core.model.ServerNode;
-import hexacloud.core.ports.RunningGatewayPort;
 import hexacloud.core.tui.TerminalUI;
 import hexacloud.core.tui.TuiRenderer;
 import hexacloud.core.tui.TuiState;
+import hexacloud.core.tui.TuiTreeNode;
+import hexacloud.core.tui.TuiTreeNode.NodeType;
 import hexacloud.core.utils.common.Casts;
 import hexacloud.core.utils.common.DebugUtils;
 import hexacloud.core.utils.terminal.NativeTerminal;
@@ -16,7 +22,7 @@ import hexacloud.core.utils.common.StrUtils;
 import static hexacloud.core.tui.TuiConstants.*;
 
 /**
- * Handles visual rendering for the main DevOps Dashboard View.
+ * Handles visual rendering for the main DevOps Dashboard View with a unified hierarchical tree structure.
  */
 public class DashboardViewRenderer {
     private final TerminalUI tui;
@@ -29,6 +35,115 @@ public class DashboardViewRenderer {
         this.mainRenderer = mainRenderer;
     }
 
+    public static List<TuiTreeNode> flattenVisibleNodes(List<TuiTreeNode> rootNodes) {
+        List<TuiTreeNode> visibleList = new ArrayList<>();
+        if (rootNodes != null) {
+            for (TuiTreeNode root : rootNodes) {
+                collectVisibleNodes(root, visibleList);
+            }
+        }
+        return visibleList;
+    }
+
+    private static void collectVisibleNodes(TuiTreeNode node, List<TuiTreeNode> list) {
+        list.add(node);
+        if (node.isExpanded() && node.getChildren() != null) {
+            for (TuiTreeNode child : node.getChildren()) {
+                collectVisibleNodes(child, list);
+            }
+        }
+    }
+
+    public void updateTreeNodes(TuiState state) {
+        Set<String> expandedIds = new HashSet<>();
+        collectExpandedIds(state.rootTreeNodes, expandedIds);
+        boolean isInitial = state.rootTreeNodes.isEmpty();
+
+        state.rootTreeNodes.clear();
+
+        Set<String> processedClusters = new HashSet<>();
+
+        if (!state.gateways.isEmpty()) {
+            for (TuiState.GatewayConfig gw : state.gateways) {
+                String gwId = "gw:" + gw.gatewayName;
+                String dataBadge = "[Data: :" + gw.port + " " + (gw.running ? "ONLINE" : "OFFLINE") + "]";
+                String mgmtBadge = "[Mgmt: :" + gw.adminPort + " " + (gw.running ? "ONLINE" : "OFFLINE") + "]";
+                String gwLabel = "GATEWAY: " + gw.gatewayName + "  " + dataBadge + " " + mgmtBadge;
+
+                TuiTreeNode gwNode = new TuiTreeNode(NodeType.GATEWAY, gwId, gwLabel, 0);
+                gwNode.setData(gw);
+                if (!isInitial) {
+                    gwNode.setExpanded(expandedIds.contains(gwId));
+                }
+                state.rootTreeNodes.add(gwNode);
+
+                if (gw.clusterName != null && !gw.clusterName.isEmpty()) {
+                    processedClusters.add(gw.clusterName);
+                    String routeId = gwId + ":route:/proxy/**";
+                    TuiTreeNode routeNode = new TuiTreeNode(NodeType.ROUTE, routeId, "Ingress Route: /proxy/**", 1);
+                    if (!isInitial) {
+                        routeNode.setExpanded(expandedIds.contains(routeId));
+                    }
+                    gwNode.addChild(routeNode);
+
+                    Cluster c = ClusterRegistry.getInstance().getCluster(gw.clusterName);
+                    String modeStr = (c != null) ? c.getRoutingMode().name() : "HYBRID";
+                    String clusterId = routeId + ":cluster:" + gw.clusterName;
+                    TuiTreeNode clusterNode = new TuiTreeNode(NodeType.CLUSTER, clusterId, "TARGET CLUSTER: " + gw.clusterName + " (Mode: " + modeStr + ")", 2);
+                    clusterNode.setData(gw.clusterName);
+                    if (!isInitial) {
+                        clusterNode.setExpanded(expandedIds.contains(clusterId));
+                    }
+                    routeNode.addChild(clusterNode);
+
+                    List<ServerNode> nodes = (c != null) ? c.getCluster() : java.util.Collections.emptyList();
+                    for (int i = 0; i < nodes.size(); i++) {
+                        ServerNode node = nodes.get(i);
+                        String nodeId = clusterId + ":node:" + node.getFullHost();
+                        String nodeLabel = "Node " + (i + 1) + ": " + node.getFullHost() + "  [" + node.status().name() + "] (" + node.latencyMs() + "ms)";
+                        TuiTreeNode nodeItem = new TuiTreeNode(NodeType.SERVER_NODE, nodeId, nodeLabel, 3);
+                        nodeItem.setData(node);
+                        clusterNode.addChild(nodeItem);
+                    }
+                }
+            }
+        }
+
+        // Add orphan clusters not assigned to any gateway
+        java.util.Collection<Cluster> allClusters = ClusterRegistry.getInstance().getClusters();
+        for (Cluster c : allClusters) {
+            if (!processedClusters.contains(c.getClusterName())) {
+                String clusterId = "cluster:" + c.getClusterName();
+                TuiTreeNode clNode = new TuiTreeNode(NodeType.CLUSTER, clusterId, "TARGET CLUSTER: " + c.getClusterName() + " (Mode: " + c.getRoutingMode().name() + ")", 0);
+                clNode.setData(c.getClusterName());
+                if (!isInitial) {
+                    clNode.setExpanded(expandedIds.contains(clusterId));
+                }
+                state.rootTreeNodes.add(clNode);
+
+                List<ServerNode> nodes = c.getCluster();
+                for (int i = 0; i < nodes.size(); i++) {
+                    ServerNode node = nodes.get(i);
+                    String nodeId = clusterId + ":node:" + node.getFullHost();
+                    String nodeLabel = "Node " + (i + 1) + ": " + node.getFullHost() + "  [" + node.status().name() + "] (" + node.latencyMs() + "ms)";
+                    TuiTreeNode nodeItem = new TuiTreeNode(NodeType.SERVER_NODE, nodeId, nodeLabel, 1);
+                    nodeItem.setData(node);
+                    clNode.addChild(nodeItem);
+                }
+            }
+        }
+    }
+
+    private void collectExpandedIds(List<TuiTreeNode> nodes, Set<String> expandedIds) {
+        if (nodes == null) return;
+        for (TuiTreeNode node : nodes) {
+            if (node.isExpanded()) {
+                expandedIds.add(node.getId());
+            }
+            collectExpandedIds(node.getChildren(), expandedIds);
+        }
+    }
+
     public void draw() {
         TuiState state = tui.state();
         int W = NativeTerminal.getTerminalWidth();
@@ -36,217 +151,93 @@ public class DashboardViewRenderer {
         if (W < 110) W = 110; // Hard minimum
         if (H < 24) H = 24;   // Hard minimum
 
-        // 1. Draw all panels/boxes
-        mainRenderer.drawBox(2, 5, 24, 9, "CLUSTERS (" + state.clusterNames.size() + ")", state.activePanel == PANEL_CLUSTERS);
-        mainRenderer.drawBox(2, 10, 24, 14, "GATEWAYS (" + state.gateways.size() + ")", state.activePanel == PANEL_GATEWAYS);
-        
-        boolean isGatewayFocused = state.activePanel == PANEL_GATEWAYS;
-        String middleTitle = isGatewayFocused ? "GATEWAY CONFIG & TRANSPORTS" : "CLUSTER CONFIG & SERVICES";
-        mainRenderer.drawBox(26, 5, W - 31, 14, middleTitle, state.activePanel == PANEL_SERVICES || state.activePanel == PANEL_GATEWAYS);
-        
-        mainRenderer.drawBox(2, 15, W / 2, H - 2, "RECENT SYSTEM LOGS [L: Full Logs]", false);
+        updateTreeNodes(state);
+        List<TuiTreeNode> visibleNodes = flattenVisibleNodes(state.rootTreeNodes);
+
+        // Synchronize selected tree index bounds
+        if (visibleNodes.isEmpty()) {
+            state.selectedTreeIndex = 0;
+        } else {
+            if (state.selectedTreeIndex < 0) state.selectedTreeIndex = 0;
+            if (state.selectedTreeIndex >= visibleNodes.size()) state.selectedTreeIndex = visibleNodes.size() - 1;
+
+            // Sync state indices with currently selected node
+            TuiTreeNode selectedNode = visibleNodes.get(state.selectedTreeIndex);
+            if (selectedNode.getType() == NodeType.GATEWAY && selectedNode.getData() instanceof TuiState.GatewayConfig) {
+                TuiState.GatewayConfig gw = (TuiState.GatewayConfig) selectedNode.getData();
+                state.selectedGatewayIndex = state.gateways.indexOf(gw);
+                if (gw != null && gw.clusterName != null && !gw.clusterName.isEmpty()) {
+                    state.selectedClusterName = gw.clusterName;
+                }
+            } else if (selectedNode.getType() == NodeType.CLUSTER && selectedNode.getData() instanceof String) {
+                state.selectedClusterName = (String) selectedNode.getData();
+            } else if (selectedNode.getType() == NodeType.SERVER_NODE && selectedNode.getData() instanceof ServerNode) {
+                ServerNode n = (ServerNode) selectedNode.getData();
+                if (state.nodes != null) {
+                    int nIdx = state.nodes.indexOf(n);
+                    if (nIdx != -1) state.selectedNodeIndex = nIdx;
+                }
+            }
+        }
+
+        // 1. Draw top panel boxes: Hierarchical Tree and Live Metrics
+        mainRenderer.drawBox(2, 5, W - 31, 14, "GATEWAYS & CLUSTERS HIERARCHY", true);
         mainRenderer.drawBox(W - 29, 5, W, 14, "GATEWAYS & SYSTEM", false);
+
+        // 2. Draw bottom panel boxes: Logs and Events
+        mainRenderer.drawBox(2, 15, W / 2, H - 2, "RECENT SYSTEM LOGS [L: Full Logs]", false);
         mainRenderer.drawBox(W / 2 + 2, 15, W, H - 2, "RECENT EVENTS", false);
 
-        // 2. Render CLUSTERS list
-        int yCluster = 6;
-        if (state.clusterNames.isEmpty()) {
-            NativeTerminal.printAt(4, yCluster, RED + "No clusters." + RESET);
-        } else {
-            for (int i = 0; i < state.clusterNames.size(); i++) {
-                if (yCluster >= 9) break;
-                String name = state.clusterNames.get(i);
-                hexacloud.core.cluster.Cluster c = hexacloud.core.cluster.ClusterRegistry.getInstance().getCluster(name);
-                int nodeCount = (c != null) ? c.getCluster().size() : 0;
-                String displayName = name + " (" + nodeCount + ")";
-                if (displayName.length() > 18) {
-                    displayName = displayName.substring(0, 15) + "...";
-                }
-                String clearedLine = displayName + "      ";
-                if (clearedLine.length() > 20) clearedLine = clearedLine.substring(0, 20);
-
-                if (i == state.selectedClusterIndex && state.activePanel == PANEL_CLUSTERS) {
-                    NativeTerminal.printAt(4, yCluster, CYAN + "➔ " + WHITE_BOLD + clearedLine + RESET);
-                } else if (i == state.selectedClusterIndex) {
-                    NativeTerminal.printAt(4, yCluster, GRAY + "➔ " + RESET + clearedLine);
-                } else {
-                    NativeTerminal.printAt(4, yCluster, "  " + clearedLine);
-                }
-                yCluster++;
-            }
+        // 3. Render Tree Nodes into top box
+        int visibleCount = 8; // Available rows inside Y=6..13
+        int viewportStart = 0;
+        if (state.selectedTreeIndex >= visibleCount) {
+            viewportStart = state.selectedTreeIndex - visibleCount + 1;
         }
-        for (int r = yCluster; r < 9; r++) {
-            NativeTerminal.printAt(4, r, "                     ");
-        }
+        int maxStart = Math.max(0, visibleNodes.size() - visibleCount);
+        if (viewportStart > maxStart) viewportStart = maxStart;
 
-        // 3. Render GATEWAYS list
-        int yGateway = 11;
-        if (state.gateways.isEmpty()) {
-            NativeTerminal.printAt(4, yGateway, RED + "No gateways." + RESET);
-        } else {
-            for (int i = 0; i < state.gateways.size(); i++) {
-                if (yGateway >= 14) break;
-                TuiState.GatewayConfig gw = state.gateways.get(i);
-                String statusIndicator = gw.running ? GREEN + "●" + RESET : RED + "○" + RESET;
-                String displayName = gw.gatewayName + " (:" + gw.port + ")";
-                if (displayName.length() > 14) {
-                    displayName = displayName.substring(0, 11) + "...";
-                }
-                String clearedLine = displayName + "    ";
-                if (clearedLine.length() > 16) clearedLine = clearedLine.substring(0, 16);
+        int treeWidth = (W - 31) - 4;
+        if (treeWidth < 40) treeWidth = 40;
 
-                if (i == state.selectedGatewayIndex && state.activePanel == PANEL_GATEWAYS) {
-                    NativeTerminal.printAt(4, yGateway, CYAN + "➔ " + WHITE_BOLD + clearedLine + " " + statusIndicator + RESET);
-                } else if (i == state.selectedGatewayIndex) {
-                    NativeTerminal.printAt(4, yGateway, GRAY + "➔ " + RESET + clearedLine + " " + statusIndicator);
-                } else {
-                    NativeTerminal.printAt(4, yGateway, "  " + clearedLine + " " + statusIndicator);
-                }
-                yGateway++;
-            }
-        }
-        for (int r = yGateway; r < 14; r++) {
-            NativeTerminal.printAt(4, r, "                     ");
-        }
-
-        // Calculate middle column dynamic host space
-        int hostColWidth = (W - 31) - 28 - 8 - 14;
-        if (hostColWidth < 26) hostColWidth = 26;
-
-        // 4. Render Middle Config & Services/Transports Table
-        if (isGatewayFocused) {
-            TuiState.GatewayConfig gw = !state.gateways.isEmpty() && state.selectedGatewayIndex < state.gateways.size()
-                ? state.gateways.get(state.selectedGatewayIndex) : null;
-            String targetCluster = (gw != null && !gw.clusterName.isEmpty()) ? gw.clusterName : "None";
-            String gwStatusStr = (gw != null && gw.running) ? GREEN + "ONLINE" + RESET : RED + "OFFLINE" + RESET;
-            int port = (gw != null) ? gw.port : 3000;
-            int pingInt = (gw != null) ? gw.pingInterval : 5;
-            String gwName = (gw != null) ? gw.gatewayName : "None";
-
-            NativeTerminal.printAt(28, 6, WHITE_BOLD + "Gateway:  " + RESET + gwName + " (:" + port + ") | Target: " + targetCluster + RESET);
-            NativeTerminal.printAt(28, 7, "Status:   " + gwStatusStr + " | Ping Interval: " + YELLOW + pingInt + "s" + RESET);
-            
-            StringBuilder sep = new StringBuilder();
-            for (int i = 27; i < W - 31; i++) sep.append("─");
-            NativeTerminal.printAt(26, 8, CYAN + "├" + sep.substring(1, sep.length() - 1) + "┤" + RESET);
-
-            String headerLine = String.format("%-" + hostColWidth + "s %-8s %-14s", "PROTOCOL / TRANSPORT", "PORT", "STATUS");
-            NativeTerminal.printAt(28, 9, WHITE_BOLD + headerLine + RESET);
-
-            int yGw = 10;
-            if (gw != null) {
-                String telnetStatus = (gw.running && gw.telnetEnabled) ? GREEN + "ONLINE" + RESET : RED + "OFFLINE" + RESET;
-                String httpStatus = (gw.running && gw.httpEnabled) ? GREEN + "ONLINE" + RESET : RED + "OFFLINE" + RESET;
-                String wsStatus = (gw.running && gw.wsEnabled) ? GREEN + "ONLINE" + RESET : RED + "OFFLINE" + RESET;
-                String tcpProxyStatus = (gw.running && gw.tcpProxyEnabled) ? GREEN + "ONLINE" + RESET : RED + "OFFLINE" + RESET;
-
-                NativeTerminal.printAt(28, yGw++, String.format("  %-" + hostColWidth + "s %-8d %-14s", "Telnet Console (CLI)", port, telnetStatus));
-                NativeTerminal.printAt(28, yGw++, String.format("  %-" + hostColWidth + "s %-8d %-14s", "HTTP REST API (JSON)", port + 1, httpStatus));
-                NativeTerminal.printAt(28, yGw++, String.format("  %-" + hostColWidth + "s %-8d %-14s", "WebSocket Stream (JSON)", port + 2, wsStatus));
-                NativeTerminal.printAt(28, yGw++, String.format("  %-" + hostColWidth + "s %-8d %-14s", "TCP Proxy (L4 LoadBalancer)", port + 3, tcpProxyStatus));
-            } else {
-                NativeTerminal.printAt(28, yGw++, RED + "No gateway selected." + RESET);
-            }
-            for (int r = yGw; r <= 13; r++) {
-                NativeTerminal.printAt(28, r, StrUtils.repeat(" ", hostColWidth + 24));
+        if (visibleNodes.isEmpty()) {
+            NativeTerminal.printAt(4, 6, RED + "No gateways or clusters registered." + RESET);
+            for (int r = 7; r <= 13; r++) {
+                NativeTerminal.printAt(4, r, StrUtils.repeat(" ", treeWidth));
             }
         } else {
-            String ips = state.targetAllowedIps.isEmpty() ? "Any Client" : state.targetAllowedIps;
-            if (ips.length() > 22) ips = ips.substring(0, 19) + "...";
+            for (int i = 0; i < visibleCount; i++) {
+                int nodeIdx = viewportStart + i;
+                int y = 6 + i;
+                if (nodeIdx < visibleNodes.size()) {
+                    TuiTreeNode node = visibleNodes.get(nodeIdx);
+                    boolean isSelected = (nodeIdx == state.selectedTreeIndex);
 
-            String gwStatus = tui.isGatewayActive(state.selectedClusterName) ? GREEN + "ONLINE" : RED + "OFFLINE";
-            RunningGatewayPort activeGw = tui.activeGateways().get(state.selectedClusterName);
-            String portSuffix = (activeGw != null) ? " (:" + activeGw.getPort() + ")" : "";
+                    String prefix = isSelected ? CYAN + "➔ " + RESET : "  ";
+                    String treeBranch = buildBranchPrefix(node, visibleNodes, nodeIdx);
+                    String formattedLabel = formatNodeLabel(node, isSelected);
 
-            hexacloud.core.cluster.Cluster currentCluster = hexacloud.core.cluster.ClusterRegistry.getInstance().getCluster(state.selectedClusterName);
-            String modeStr = (currentCluster != null) ? currentCluster.getRoutingMode().name() : "N/A";
-            NativeTerminal.printAt(28, 6, WHITE_BOLD + "Active:   " + RESET + state.selectedClusterName + " | Mode: " + YELLOW + modeStr + RESET + " | Gateway: " + gwStatus + portSuffix + RESET);
-            NativeTerminal.printAt(28, 7, "Security: " + (state.targetRequireToken ? GREEN + "Token Required" + RESET : YELLOW + "Optional" + RESET) + " | Allowed: " + CYAN + ips + RESET);
-            
-            StringBuilder sep = new StringBuilder();
-            for (int i = 27; i < W - 31; i++) sep.append("─");
-            NativeTerminal.printAt(26, 8, CYAN + "├" + sep.substring(1, sep.length() - 1) + "┤" + RESET);
-
-            String headerLine = String.format("%-" + hostColWidth + "s %-8s %-14s", "SERVICE HOST", "PORT", "STATUS");
-            NativeTerminal.printAt(28, 9, WHITE_BOLD + headerLine + RESET);
-
-            tui.adjustServicesViewport(4);
-
-            int yNode = 10;
-            if (state.nodes.isEmpty()) {
-                NativeTerminal.printAt(28, yNode, RED + "No services registered." + RESET);
-                yNode++;
-            } else {
-                for (int i = 0; i < 4; i++) {
-                    int index = state.servicesViewportStart + i;
-                    if (index >= state.nodes.size()) break;
-
-                    ServerNode node = state.nodes.get(index);
-                    String statusText = node.status().name();
-                    String coloredStatus = GREEN + "ONLINE" + RESET;
-                    if (statusText.equals("OFFLINE")) {
-                        coloredStatus = RED + "OFFLINE" + RESET;
-                    } else if (statusText.equals("UNSTABLE")) {
-                        coloredStatus = YELLOW + "UNSTABLE" + RESET;
+                    String lineText = prefix + treeBranch + formattedLabel;
+                    String clearedLine = lineText + StrUtils.repeat(" ", Math.max(0, treeWidth - stripAnsi(lineText).length()));
+                    if (stripAnsi(clearedLine).length() > treeWidth) {
+                        clearedLine = truncateAnsi(clearedLine, treeWidth);
                     }
 
-                    String portStr = node.port() == 0 ? "-" : String.valueOf(node.port());
-                    String prefix = "  ";
-                    if (index == state.selectedNodeIndex && state.activePanel == PANEL_SERVICES) {
-                        prefix = "➔ ";
-                    }
-
-                    String hostStr = node.host() + (node.runtime().isEmpty() ? "" : " [" + node.runtime() + "]");
-                    String statusLabel = coloredStatus + (node.status().name().equals("ONLINE") ? " (" + node.latencyMs() + "ms)" : "");
-
-                    String line = String.format("%s%-" + hostColWidth + "s %-8s %-14s", prefix, hostStr, portStr, statusLabel);
-                    NativeTerminal.printAt(28, yNode, line);
-                    yNode++;
-                }
-                if (state.servicesViewportStart > 0) {
-                    NativeTerminal.printAt(W - 33, 9, WHITE_BOLD + "▲" + RESET);
-                }
-                if (state.servicesViewportStart + 4 < state.nodes.size()) {
-                    NativeTerminal.printAt(W - 33, 13, WHITE_BOLD + "▼" + RESET);
-                }
-            }
-            for (int r = yNode; r <= 13; r++) {
-                NativeTerminal.printAt(28, r, StrUtils.repeat(" ", hostColWidth + 24));
-            }
-        }
-
-        // 5. Render RECENT SYSTEM LOGS
-        int yLog = 16;
-        int maxLogWidth = (W / 2) - 4;
-        int logsLimit = (H - 2) - 15 - 1;
-        List<DebugUtils.LogEntry> dashboardLogs = DebugUtils.getDashboardLogs();
-        if (dashboardLogs.isEmpty()) {
-            NativeTerminal.printAt(4, yLog, "No logs recorded yet.");
-            yLog++;
-        } else {
-            int startIdx = Math.max(0, dashboardLogs.size() - logsLimit);
-            for (int i = startIdx; i < dashboardLogs.size(); i++) {
-                DebugUtils.LogEntry entry = dashboardLogs.get(i);
-                String logLine = entry.toString();
-                StringBuilder clearedLine = new StringBuilder(logLine);
-                while (clearedLine.length() < maxLogWidth) clearedLine.append(" ");
-                String outputLine = clearedLine.substring(0, maxLogWidth);
-
-                if (entry.getLevel() == DebugUtils.LogLevel.ERROR) {
-                    NativeTerminal.printAt(4, yLog, RED + outputLine + RESET);
-                } else if (entry.getLevel() == DebugUtils.LogLevel.INFO) {
-                    NativeTerminal.printAt(4, yLog, CYAN + outputLine + RESET);
+                    NativeTerminal.printAt(4, y, clearedLine);
                 } else {
-                    NativeTerminal.printAt(4, yLog, outputLine);
+                    NativeTerminal.printAt(4, y, StrUtils.repeat(" ", treeWidth));
                 }
-                yLog++;
+            }
+
+            if (viewportStart > 0) {
+                NativeTerminal.printAt(W - 33, 5, WHITE_BOLD + "▲" + RESET);
+            }
+            if (viewportStart + visibleCount < visibleNodes.size()) {
+                NativeTerminal.printAt(W - 33, 14, WHITE_BOLD + "▼" + RESET);
             }
         }
-        for (int r = yLog; r < H - 2; r++) {
-            NativeTerminal.printAt(4, r, StrUtils.repeat(" ", maxLogWidth));
-        }
 
-        // 6. Render GATEWAYS & SYSTEM Live Metrics
+        // 4. Render GATEWAYS & SYSTEM Live Metrics
         int xMetrics = W - 27;
         NativeTerminal.printAt(xMetrics, 6, WHITE_BOLD + "SYSTEM RESOURCES" + RESET);
         long usedMem = (Runtime.getRuntime().totalMemory() - Runtime.getRuntime().freeMemory()) / (1024 * 1024);
@@ -260,11 +251,9 @@ public class DashboardViewRenderer {
         double cpu = -1;
         try {
             java.lang.management.OperatingSystemMXBean osBean = java.lang.management.ManagementFactory.getOperatingSystemMXBean();
-
             cpu = Casts.<Double>matchValue(osBean)
                 .when(com.sun.management.OperatingSystemMXBean.class, sunBean -> sunBean.getProcessCpuLoad() * 100)
                 .orElse(cpu);
-
         } catch (Throwable t) {
             if (!cpuErrorLogged) {
                 DebugUtils.error("TUI", null, "Failed to retrieve CPU load metrics", t);
@@ -302,10 +291,41 @@ public class DashboardViewRenderer {
             int firstPort = tui.activeGateways().values().iterator().next().getPort();
             gwSummary += " (:" + firstPort + ")";
         }
-        String summaryPadding = StrUtils.repeat(" ", Math.max(0, 26 - gwSummary.replaceAll("\u001B\\[[;\\d]*m", "").length()));
+        String summaryPadding = StrUtils.repeat(" ", Math.max(0, 26 - stripAnsi(gwSummary).length()));
         NativeTerminal.printAt(xMetrics, 12, gwSummary + summaryPadding);
 
-        // 7. Render RECENT EVENTS
+        // 5. Render RECENT SYSTEM LOGS
+        int yLog = 16;
+        int maxLogWidth = (W / 2) - 4;
+        int logsLimit = (H - 2) - 15 - 1;
+        List<DebugUtils.LogEntry> dashboardLogs = DebugUtils.getDashboardLogs();
+        if (dashboardLogs.isEmpty()) {
+            NativeTerminal.printAt(4, yLog, "No logs recorded yet.");
+            yLog++;
+        } else {
+            int startIdx = Math.max(0, dashboardLogs.size() - logsLimit);
+            for (int i = startIdx; i < dashboardLogs.size(); i++) {
+                DebugUtils.LogEntry entry = dashboardLogs.get(i);
+                String logLine = entry.toString();
+                StringBuilder clearedLine = new StringBuilder(logLine);
+                while (clearedLine.length() < maxLogWidth) clearedLine.append(" ");
+                String outputLine = clearedLine.substring(0, maxLogWidth);
+
+                if (entry.getLevel() == DebugUtils.LogLevel.ERROR) {
+                    NativeTerminal.printAt(4, yLog, RED + outputLine + RESET);
+                } else if (entry.getLevel() == DebugUtils.LogLevel.INFO) {
+                    NativeTerminal.printAt(4, yLog, CYAN + outputLine + RESET);
+                } else {
+                    NativeTerminal.printAt(4, yLog, outputLine);
+                }
+                yLog++;
+            }
+        }
+        for (int r = yLog; r < H - 2; r++) {
+            NativeTerminal.printAt(4, r, StrUtils.repeat(" ", maxLogWidth));
+        }
+
+        // 6. Render RECENT EVENTS
         int eventY = 16;
         int xEvents = W / 2 + 4;
         int maxEventWidth = W - xEvents - 2;
@@ -375,22 +395,104 @@ public class DashboardViewRenderer {
             NativeTerminal.printAt(xEvents, row, StrUtils.repeat(" ", maxEventWidth));
         }
 
-        // 8. Render bottom controls
+        // 7. Render bottom controls
         StringBuilder controlsStr = new StringBuilder();
-        controlsStr.append(" [Tab] Focus");
-        if (state.activePanel == PANEL_GATEWAYS) {
-            if (!tui.readOnly()) {
-                controlsStr.append("  [G] Toggle GW  [A] Route Cluster  [T] Telnet  [H] HTTP  [W] WS");
-            }
-        } else {
-            controlsStr.append("  [Enter] Console");
-            if (tui.gatewayManagementEnabled() && !tui.readOnly()) controlsStr.append("  [G] Gateway");
-            if (tui.clusterManagementEnabled() && !tui.readOnly()) controlsStr.append("  [C] New Cluster");
+        controlsStr.append("  [▲/▼] Navigate  [Space/Enter] Expand/Collapse");
+        if (!tui.readOnly()) {
+            controlsStr.append("  [G] Toggle GW  [N] Add Node");
+            if (tui.clusterManagementEnabled()) controlsStr.append("  [C] New Cluster");
         }
         controlsStr.append("  [L] Logs  [Q] Exit");
-        
-        // Clear control row first to prevent visual residue
+
         NativeTerminal.printAt(2, H - 1, StrUtils.repeat(" ", W - 4));
         NativeTerminal.printAt(2, H - 1, WHITE_BOLD + "Controls:" + RESET + controlsStr.toString());
+    }
+
+    private String buildBranchPrefix(TuiTreeNode node, List<TuiTreeNode> visibleNodes, int index) {
+        int depth = node.getDepth();
+        boolean hasChildren = !node.getChildren().isEmpty();
+        boolean isExpanded = node.isExpanded();
+        String expandIcon = hasChildren ? (isExpanded ? "▼ " : "▶ ") : "";
+
+        if (depth == 0) {
+            return hasChildren ? expandIcon : "  ";
+        }
+
+        boolean isLastChild = checkIsLastSibling(node, visibleNodes, index);
+        String connector = isLastChild ? "└─ " : "├─ ";
+
+        if (depth == 1) {
+            return "  " + connector + expandIcon;
+        } else if (depth == 2) {
+            return "      " + connector + expandIcon;
+        } else {
+            return "          " + connector + expandIcon;
+        }
+    }
+
+    private boolean checkIsLastSibling(TuiTreeNode node, List<TuiTreeNode> visibleNodes, int index) {
+        if (index >= visibleNodes.size() - 1) return true;
+        TuiTreeNode next = visibleNodes.get(index + 1);
+        return next.getDepth() < node.getDepth();
+    }
+
+    private String formatNodeLabel(TuiTreeNode node, boolean isSelected) {
+        String rawLabel = node.getLabel();
+        if (node.getType() == NodeType.GATEWAY && node.getData() instanceof TuiState.GatewayConfig) {
+            TuiState.GatewayConfig gw = (TuiState.GatewayConfig) node.getData();
+            String dataStatusStr = gw.running ? GREEN + "ONLINE" + RESET : RED + "OFFLINE" + RESET;
+            String mgmtStatusStr = gw.running ? GREEN + "ONLINE" + RESET : RED + "OFFLINE" + RESET;
+            String dataBadge = "[Data: :" + gw.port + " " + dataStatusStr + "]";
+            String mgmtBadge = "[Mgmt: :" + gw.adminPort + " " + mgmtStatusStr + "]";
+            String gwNameStr = isSelected ? WHITE_BOLD + gw.gatewayName + RESET : gw.gatewayName;
+            return WHITE_BOLD + "GATEWAY: " + RESET + gwNameStr + "  " + dataBadge + " " + mgmtBadge;
+        } else if (node.getType() == NodeType.ROUTE) {
+            return CYAN + rawLabel + RESET;
+        } else if (node.getType() == NodeType.CLUSTER) {
+            if (isSelected) {
+                return WHITE_BOLD + rawLabel + RESET;
+            }
+            return rawLabel;
+        } else if (node.getType() == NodeType.SERVER_NODE) {
+            if (node.getData() instanceof ServerNode) {
+                ServerNode sn = (ServerNode) node.getData();
+                String statusStr = sn.status().name();
+                String colorStr = statusStr.equals("ONLINE") ? GREEN : (statusStr.equals("UNSTABLE") ? YELLOW : RED);
+                String labelStr = rawLabel.replace("[" + statusStr + "]", "[" + colorStr + statusStr + RESET + "]");
+                return isSelected ? WHITE_BOLD + labelStr + RESET : labelStr;
+            }
+        }
+        return isSelected ? WHITE_BOLD + rawLabel + RESET : rawLabel;
+    }
+
+    private static String stripAnsi(String text) {
+        if (text == null) return "";
+        return text.replaceAll("\u001B\\[[;\\d]*m", "");
+    }
+
+    private static String truncateAnsi(String text, int maxWidth) {
+        if (stripAnsi(text).length() <= maxWidth) return text;
+        StringBuilder sb = new StringBuilder();
+        int visibleLen = 0;
+        boolean inAnsi = false;
+        for (int i = 0; i < text.length(); i++) {
+            char c = text.charAt(i);
+            if (c == '\033') {
+                inAnsi = true;
+                sb.append(c);
+            } else if (inAnsi) {
+                sb.append(c);
+                if (c == 'm') inAnsi = false;
+            } else {
+                if (visibleLen < maxWidth) {
+                    sb.append(c);
+                    visibleLen++;
+                } else {
+                    break;
+                }
+            }
+        }
+        sb.append(RESET);
+        return sb.toString();
     }
 }

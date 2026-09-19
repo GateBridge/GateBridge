@@ -454,6 +454,11 @@ public class TerminalUI implements hexacloud.core.ports.TerminalUiPort {
             if (activeGw != null) {
                 cfg.gatewayName = activeGw.getGatewayName();
                 cfg.port = activeGw.getPort();
+                if (activeGw instanceof hexacloud.infra.gateway.LocalGatewayAdapter) {
+                    cfg.adminPort = ((hexacloud.infra.gateway.LocalGatewayAdapter) activeGw).getAdminPort();
+                } else {
+                    cfg.adminPort = Integer.getInteger("gatebridge.admin.port", 9090);
+                }
                 cfg.telnetEnabled = activeGw.isTelnetEnabled();
                 cfg.httpEnabled = activeGw.isHttpEnabled();
                 cfg.wsEnabled = activeGw.isWsEnabled();
@@ -463,6 +468,7 @@ public class TerminalUI implements hexacloud.core.ports.TerminalUiPort {
             } else {
                 Integer configuredPort = gatewayPorts.get(clusterName);
                 cfg.port = (configuredPort != null) ? configuredPort : 3000;
+                cfg.adminPort = Integer.getInteger("gatebridge.admin.port", 9090);
                 cfg.gatewayName = "gw-" + cfg.port;
                 cfg.running = false;
             }
