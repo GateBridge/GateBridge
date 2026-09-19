@@ -5,6 +5,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Queue;
 import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -19,6 +20,7 @@ public class DebugUtils {
     private static boolean debugEnabled = false;
     private static boolean tuiModeActive = false;
     private static final Queue<LogEntry> recentLogs = new ConcurrentLinkedQueue<>();
+    private static final AtomicInteger logCount = new AtomicInteger(0);
 
     public enum LogLevel {
         DEBUG,
@@ -174,8 +176,10 @@ public class DebugUtils {
         public void log(LogLevel level, String clusterName, String serviceHost, String message, Throwable t) {
             LogEntry entry = new LogEntry(level, clusterName, serviceHost, message);
             recentLogs.offer(entry);
-            while (recentLogs.size() > 1000) {
+            logCount.incrementAndGet();
+            while (logCount.get() > 1000) {
                 recentLogs.poll();
+                logCount.decrementAndGet();
             }
             if (!tuiModeActive) {
                 if (level == LogLevel.ERROR) {
