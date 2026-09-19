@@ -16,6 +16,9 @@ public class TuiState {
     public int selectedClusterIndex = 0;
     public int selectedNodeIndex = 0;
     public int selectedLogIndex = 0;
+    public int selectedTreeIndex = 0;
+
+    public final List<TuiTreeNode> rootTreeNodes = new ArrayList<>();
 
     public int servicesViewportStart = 0;
     public int logViewportStart = 0;
