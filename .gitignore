@@ -23,3 +23,9 @@ CODE_REVIEW.md
 .state
 .superpowers
 .tmp
+
+# Ignore internal AI planning, specs, issues, and superpowers logs
+docs/plans/
+docs/specs/
+docs/issues/
+docs/superpowers/
