@@ -201,6 +201,7 @@ public class ServerManager implements ServerOperations {
     public void setPerformanceProfile(hexacloud.core.server.PerformanceProfile performanceProfile) {
         if (performanceProfile != null) {
             this.performanceProfile = performanceProfile;
+            System.setProperty("jdk.httpclient.connectionPoolSize", String.valueOf(performanceProfile.getConnectionPoolSize()));
             for (ServerTransport transport : activeTransports) {
                 transport.setPerformanceProfile(performanceProfile);
             }
