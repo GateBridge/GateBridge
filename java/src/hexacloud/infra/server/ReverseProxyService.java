@@ -18,6 +18,8 @@ import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
 
 public class ReverseProxyService {
+    private static final int HTTP_LOCALHOST_PREFIX_LEN = "http://localhost:".length();
+    private static final int HTTPS_LOCALHOST_PREFIX_LEN = "https://localhost:".length();
     private static final boolean IS_CONNECTION_POOL_EXPLICIT = System.getProperty("jdk.httpclient.connectionPoolSize") != null;
     private final HttpProxyClient proxyClient;
     private final HttpErrorHandler errorHandler;
@@ -70,9 +72,9 @@ public class ReverseProxyService {
 
         String targetUrl = targetNode.getFullHost() + (subpath.startsWith("/") ? subpath : "/" + subpath);
         if (targetUrl.startsWith("http://localhost:")) {
-            targetUrl = "http://127.0.0.1:" + targetUrl.substring(17);
+            targetUrl = "http://127.0.0.1:" + targetUrl.substring(HTTP_LOCALHOST_PREFIX_LEN);
         } else if (targetUrl.startsWith("https://localhost:")) {
-            targetUrl = "https://127.0.0.1:" + targetUrl.substring(18);
+            targetUrl = "https://127.0.0.1:" + targetUrl.substring(HTTPS_LOCALHOST_PREFIX_LEN);
         }
         String query = req.getQuery();
         if (query != null && !query.isEmpty()) {
@@ -179,21 +181,23 @@ public class ReverseProxyService {
         return null;
     }
 
-    private void appendHeader(Map<String, List<String>> headers, String name, String value) {
+    private void appendHeader(Map<String, List<String>> headers, String key, String value) {
         if (value == null) return;
+        String matchedKey = null;
+        List<String> existingList = null;
         for (Map.Entry<String, List<String>> entry : headers.entrySet()) {
-            if (name.equalsIgnoreCase(entry.getKey())) {
-                List<String> list = entry.getValue();
-                if (!(list instanceof ArrayList)) {
-                    list = new ArrayList<>(list);
-                    entry.setValue(list);
-                }
-                list.add(value);
-                return;
+            if (key.equalsIgnoreCase(entry.getKey())) {
+                matchedKey = entry.getKey();
+                existingList = entry.getValue();
+                break;
             }
         }
-        List<String> list = new ArrayList<>(1);
-        list.add(value);
-        headers.put(name, list);
+        if (matchedKey != null) {
+            List<String> newList = new ArrayList<>(existingList != null ? existingList : List.of());
+            newList.add(value);
+            headers.put(matchedKey, newList);
+        } else {
+            headers.put(key, new ArrayList<>(List.of(value)));
+        }
     }
 }

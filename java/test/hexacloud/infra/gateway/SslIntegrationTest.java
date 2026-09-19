@@ -55,7 +55,8 @@ public class SslIntegrationTest {
     @Test
     public void testSslContextPropagationJdkEngine() throws Exception {
         SSLContext dummyContext = SSLContext.getDefault();
-        int sslPort = findFreePort();
+        int basePort = findFreePort();
+        int sslPort = basePort + 10;
         SslContextPort sslContextPort = new DummySslContextPort(dummyContext, sslPort, true);
 
         LocalGatewayAdapter gateway = (LocalGatewayAdapter) GatewayFactory.createGateway("ssl-test-cluster-jdk");
@@ -68,7 +69,6 @@ public class SslIntegrationTest {
         ServerManager serverManager = (ServerManager) serverManagerField.get(gateway);
         assertNotNull(serverManager);
 
-        int basePort = findFreePort();
         try {
             gateway.listen(basePort);
             assertEquals(sslContextPort, serverManager.getSslContext());
@@ -97,7 +97,8 @@ public class SslIntegrationTest {
     @Test
     public void testSslContextPropagationUndertowEngine() throws Exception {
         SSLContext dummyContext = SSLContext.getDefault();
-        int sslPort = findFreePort();
+        int basePort = findFreePort();
+        int sslPort = basePort + 10;
         SslContextPort sslContextPort = new DummySslContextPort(dummyContext, sslPort, true);
 
         LocalGatewayAdapter gateway = (LocalGatewayAdapter) GatewayFactory.createGateway("ssl-test-cluster-undertow");
@@ -110,7 +111,6 @@ public class SslIntegrationTest {
         ServerManager serverManager = (ServerManager) serverManagerField.get(gateway);
         assertNotNull(serverManager);
 
-        int basePort = findFreePort();
         try {
             gateway.listen(basePort);
             assertEquals(sslContextPort, serverManager.getSslContext());
