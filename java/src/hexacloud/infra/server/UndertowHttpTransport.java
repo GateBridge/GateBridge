@@ -139,7 +139,8 @@ public class UndertowHttpTransport implements ServerTransport {
                 public void handleRequest(HttpServerExchange exchange) throws Exception {
                     String path = exchange.getRequestPath();
                     RouteResolution resolution = PathResolver.resolve(path, exchange.getRequestHeaders().getFirst(io.undertow.util.Headers.HOST), registry);
-                    boolean canUseFastPath = isFastPathEnabled() && resolution.isLocal() 
+                    boolean allowLegacySinglePortAdmin = Boolean.getBoolean("gatebridge.admin.legacy.singleport");
+                    boolean canUseFastPath = allowLegacySinglePortAdmin && isFastPathEnabled() && resolution.isLocal() 
                             && registry.isRouteFastPath(resolution.localRouteName())
                             && (activeFilters.isEmpty() || (activeFilters.size() == 1 && activeFilters.get(0) instanceof CorsFilter));
 
@@ -340,6 +341,8 @@ public class UndertowHttpTransport implements ServerTransport {
     }
 
     private void executeRoute(HttpRequest r, HttpResponse s, RouteResolution resolution, RouteRegistry registry) throws Exception {
+        boolean allowLegacySinglePortAdmin = Boolean.getBoolean("gatebridge.admin.legacy.singleport");
+
         if (resolution.isProxy()) {
             Cluster targetCluster = ClusterRegistry.getInstance().getCluster(resolution.targetClusterName());
             if (targetCluster == null) {
@@ -347,13 +350,34 @@ public class UndertowHttpTransport implements ServerTransport {
                 return;
             }
 
-            // Check if there is an internal cluster administration route
-            RouteRegistry clusterRegistry = targetCluster.getRouteRegistry();
-            String clusterRouteKey = resolution.resolveTargetRouteKey();
-            if (clusterRegistry != null && clusterRouteKey != null) {
-                BiConsumer<String, PrintWriter> handler = clusterRegistry.getRoutes().get(clusterRouteKey);
+            if (allowLegacySinglePortAdmin) {
+                RouteRegistry clusterRegistry = targetCluster.getRouteRegistry();
+                String clusterRouteKey = resolution.resolveTargetRouteKey();
+                if (clusterRegistry != null && clusterRouteKey != null) {
+                    BiConsumer<String, PrintWriter> handler = clusterRegistry.getRoutes().get(clusterRouteKey);
+                    if (handler != null) {
+                        if (clusterRouteKey.equals("/V1/GET_NODES_JSON")) {
+                            s.setContentType("application/json");
+                        } else {
+                            s.setContentType("text/plain");
+                        }
+                        try (PrintWriter out = s.getWriter()) {
+                            String query = r.getQuery();
+                            String args = query != null ? query : "";
+                            handler.accept(args, out);
+                        }
+                        return;
+                    }
+                }
+            }
+
+            reverseProxyService.proxyRequest(r, s, targetCluster, resolution.targetSubpath(), targetCluster.getTimeoutMs(), resolution.matchedRouteRule());
+
+        } else if (resolution.isLocal()) {
+            if (allowLegacySinglePortAdmin) {
+                BiConsumer<String, PrintWriter> handler = registry.getRoutes().get(resolution.localRouteName());
                 if (handler != null) {
-                    if (clusterRouteKey.equals("/V1/GET_NODES_JSON")) {
+                    if (resolution.localRouteName().equals("/V1/GET_NODES_JSON")) {
                         s.setContentType("application/json");
                     } else {
                         s.setContentType("text/plain");
@@ -366,21 +390,7 @@ public class UndertowHttpTransport implements ServerTransport {
                     return;
                 }
             }
-
-            reverseProxyService.proxyRequest(r, s, targetCluster, resolution.targetSubpath(), targetCluster.getTimeoutMs(), resolution.matchedRouteRule());
-
-        } else if (resolution.isLocal()) {
-            BiConsumer<String, PrintWriter> handler = registry.getRoutes().get(resolution.localRouteName());
-            if (resolution.localRouteName().equals("/V1/GET_NODES_JSON")) {
-                s.setContentType("application/json");
-            } else {
-                s.setContentType("text/plain");
-            }
-            try (PrintWriter out = s.getWriter()) {
-                String query = r.getQuery();
-                String args = query != null ? query : "";
-                handler.accept(args, out);
-            }
+            errorHandler.handleStatus(s, 404, "Management Endpoints Disabled on Data Port");
         } else {
             errorHandler.handleStatus(s, 404, "Unknown Route: " + r.getPath());
         }

@@ -24,11 +24,13 @@ public class UndertowHttpTransportTest {
 
     private String originalGeneratorProp;
     private String originalLifecycleProp;
+    private String originalSinglePortProp;
 
     @BeforeEach
     public void setUp() {
         originalGeneratorProp = System.getProperty("gatebridge.connection.id.generator");
         originalLifecycleProp = System.getProperty("gatebridge.socket.lifecycle.enabled");
+        originalSinglePortProp = System.getProperty("gatebridge.admin.legacy.singleport");
     }
 
     @AfterEach
@@ -43,6 +45,12 @@ public class UndertowHttpTransportTest {
             System.setProperty("gatebridge.socket.lifecycle.enabled", originalLifecycleProp);
         } else {
             System.clearProperty("gatebridge.socket.lifecycle.enabled");
+        }
+
+        if (originalSinglePortProp != null) {
+            System.setProperty("gatebridge.admin.legacy.singleport", originalSinglePortProp);
+        } else {
+            System.clearProperty("gatebridge.admin.legacy.singleport");
         }
     }
 
@@ -105,6 +113,7 @@ public class UndertowHttpTransportTest {
     @Test
     public void testSocketLevelConnectionLifecycle() throws Exception {
         System.setProperty("gatebridge.socket.lifecycle.enabled", "true");
+        System.setProperty("gatebridge.admin.legacy.singleport", "true");
 
         ConnectionRegistry registry = new ConnectionRegistry();
         AtomicInteger connectCount = new AtomicInteger(0);
@@ -176,6 +185,7 @@ public class UndertowHttpTransportTest {
     @Test
     public void testPerRequestFallbackWhenSocketLifecycleDisabled() throws Exception {
         System.setProperty("gatebridge.socket.lifecycle.enabled", "false");
+        System.setProperty("gatebridge.admin.legacy.singleport", "true");
 
         ConnectionRegistry registry = new ConnectionRegistry();
         AtomicInteger connectCount = new AtomicInteger(0);
@@ -242,5 +252,30 @@ public class UndertowHttpTransportTest {
         assertDoesNotThrow(() -> transport.setPerformanceProfile(hexacloud.core.server.PerformanceProfile.RESILIENT));
         assertDoesNotThrow(() -> transport.setPerformanceProfile(hexacloud.core.server.PerformanceProfile.MAX_PERFORMANCE));
         assertDoesNotThrow(() -> transport.setPerformanceProfile(hexacloud.core.server.PerformanceProfile.STANDARD));
+    }
+
+    @Test
+    public void testDataPlaneRejectsAdminRoutesInDualListenerMode() throws Exception {
+        System.clearProperty("gatebridge.admin.legacy.singleport");
+
+        UndertowHttpTransport transport = new UndertowHttpTransport();
+        RouteRegistry routeRegistry = new RouteRegistry();
+        routeRegistry.registerController(new hexacloud.core.server.route.ClusterController(new hexacloud.core.cluster.Cluster("test-cluster")));
+
+        int port = findFreePort();
+        transport.listen(port, routeRegistry, Collections.emptyList(), Collections.emptyList());
+
+        try {
+            HttpClient client = HttpClient.newHttpClient();
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create("http://127.0.0.1:" + port + "/v1/get_nodes_json"))
+                    .GET()
+                    .build();
+
+            HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+            assertEquals(404, response.statusCode());
+        } finally {
+            transport.stop();
+        }
     }
 }

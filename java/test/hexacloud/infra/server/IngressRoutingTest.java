@@ -43,8 +43,12 @@ public class IngressRoutingTest {
     private UndertowHttpTransport undertowTransport;
     private Cluster testCluster;
 
+    private String originalSinglePortProp;
+
     @BeforeEach
     public void setUp() throws Exception {
+        originalSinglePortProp = System.getProperty("gatebridge.admin.legacy.singleport");
+        System.setProperty("gatebridge.admin.legacy.singleport", "true");
         System.setProperty("sun.net.http.allowRestrictedHeaders", "true");
         backendPort1 = findFreePort();
         backendPort2 = findFreePort();
@@ -90,6 +94,12 @@ public class IngressRoutingTest {
 
     @AfterEach
     public void tearDown() {
+        if (originalSinglePortProp != null) {
+            System.setProperty("gatebridge.admin.legacy.singleport", originalSinglePortProp);
+        } else {
+            System.clearProperty("gatebridge.admin.legacy.singleport");
+        }
+
         if (jdkTransport != null && jdkTransport.isRunning()) {
             jdkTransport.stop();
         }
