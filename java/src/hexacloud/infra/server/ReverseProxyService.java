@@ -69,30 +69,33 @@ public class ReverseProxyService {
         long startTime = System.currentTimeMillis();
 
         String targetUrl = targetNode.getFullHost() + (subpath.startsWith("/") ? subpath : "/" + subpath);
-        if (targetUrl.startsWith("http://localhost")) {
-            targetUrl = targetUrl.replaceFirst("http://localhost", "http://127.0.0.1");
-        } else if (targetUrl.startsWith("https://localhost")) {
-            targetUrl = targetUrl.replaceFirst("https://localhost", "https://127.0.0.1");
+        if (targetUrl.startsWith("http://localhost:")) {
+            targetUrl = "http://127.0.0.1:" + targetUrl.substring(17);
+        } else if (targetUrl.startsWith("https://localhost:")) {
+            targetUrl = "https://127.0.0.1:" + targetUrl.substring(18);
         }
         String query = req.getQuery();
         if (query != null && !query.isEmpty()) {
             targetUrl += "?" + query;
         }
 
-        Map<String, List<String>> headers = new java.util.TreeMap<>(String.CASE_INSENSITIVE_ORDER);
+        Map<String, List<String>> headers = new java.util.LinkedHashMap<>();
         if (req.getHeaders() != null) {
             for (Map.Entry<String, List<String>> entry : req.getHeaders().entrySet()) {
-                headers.put(entry.getKey(), new ArrayList<>(entry.getValue()));
+                headers.put(entry.getKey(), entry.getValue());
             }
         }
         
         // Add traceability headers
         String clientIp = req.getClientIp();
         if (clientIp != null) {
-            headers.computeIfAbsent("X-Forwarded-For", k -> new ArrayList<>()).add(clientIp);
+            appendHeader(headers, "X-Forwarded-For", clientIp);
         }
-        headers.computeIfAbsent("X-Forwarded-Host", k -> new ArrayList<>()).add(req.getHeader("Host"));
-        headers.computeIfAbsent("X-Forwarded-Proto", k -> new ArrayList<>()).add("http");
+        String host = req.getHeader("Host");
+        if (host != null) {
+            appendHeader(headers, "X-Forwarded-Host", host);
+        }
+        appendHeader(headers, "X-Forwarded-Proto", "http");
 
         try (InputStream bodyIn = req.getBody()) {
             ProxyResponse response = proxyClient.execute(targetUrl, req.getMethod(), headers, bodyIn, timeoutMs);
@@ -174,5 +177,23 @@ public class ReverseProxyService {
             }
         }
         return null;
+    }
+
+    private void appendHeader(Map<String, List<String>> headers, String name, String value) {
+        if (value == null) return;
+        for (Map.Entry<String, List<String>> entry : headers.entrySet()) {
+            if (name.equalsIgnoreCase(entry.getKey())) {
+                List<String> list = entry.getValue();
+                if (!(list instanceof ArrayList)) {
+                    list = new ArrayList<>(list);
+                    entry.setValue(list);
+                }
+                list.add(value);
+                return;
+            }
+        }
+        List<String> list = new ArrayList<>(1);
+        list.add(value);
+        headers.put(name, list);
     }
 }

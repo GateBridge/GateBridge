@@ -58,4 +58,19 @@ public class JdkHttpProxyClientTest {
         assertEquals(200, resp2.statusCode());
         assertTrue(connectionCount.get() >= 2);
     }
+
+    @Test
+    public void testUrlStringPrefixReplacement() {
+        String url1 = "http://localhost:3001/hello";
+        String replaced1 = url1.startsWith("http://localhost:") ? "http://127.0.0.1:" + url1.substring(17) : url1;
+        assertEquals("http://127.0.0.1:3001/hello", replaced1);
+
+        String url2 = "https://localhost:8443/secure";
+        String replaced2 = url2.startsWith("https://localhost:") ? "https://127.0.0.1:" + url2.substring(18) : url2;
+        assertEquals("https://127.0.0.1:8443/secure", replaced2);
+
+        String url3 = "http://example.com/api";
+        String replaced3 = url3.startsWith("http://localhost:") ? "http://127.0.0.1:" + url3.substring(17) : url3;
+        assertEquals("http://example.com/api", replaced3);
+    }
 }
