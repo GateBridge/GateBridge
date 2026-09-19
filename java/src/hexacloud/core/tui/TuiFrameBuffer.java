@@ -30,6 +30,14 @@ public class TuiFrameBuffer {
         return buffer.toString();
     }
 
+    public int getWidth() {
+        return width;
+    }
+
+    public int getHeight() {
+        return height;
+    }
+
     public void flushToTerminal() {
         System.out.print(buildFrameString());
         System.out.flush();

@@ -10,6 +10,7 @@ import hexacloud.core.cluster.ClusterRegistry;
 import hexacloud.core.event.TuiEvent;
 import hexacloud.core.model.ServerNode;
 import hexacloud.core.tui.TerminalUI;
+import hexacloud.core.tui.TuiFrameBuffer;
 import hexacloud.core.tui.TuiRenderer;
 import hexacloud.core.tui.TuiState;
 import hexacloud.core.tui.TuiTreeNode;
@@ -145,6 +146,15 @@ public class DashboardViewRenderer {
     }
 
     public void draw() {
+        int W = NativeTerminal.getTerminalWidth();
+        int H = NativeTerminal.getTerminalHeight();
+        TuiFrameBuffer frameBuffer = new TuiFrameBuffer(W, H);
+        frameBuffer.beginFrame();
+        draw(frameBuffer);
+        frameBuffer.flushToTerminal();
+    }
+
+    public void draw(TuiFrameBuffer frameBuffer) {
         TuiState state = tui.state();
         int W = NativeTerminal.getTerminalWidth();
         int H = NativeTerminal.getTerminalHeight();
@@ -181,12 +191,12 @@ public class DashboardViewRenderer {
         }
 
         // 1. Draw top panel boxes: Hierarchical Tree and Live Metrics
-        mainRenderer.drawBox(2, 5, W - 31, 14, "GATEWAYS & CLUSTERS HIERARCHY", true);
-        mainRenderer.drawBox(W - 29, 5, W, 14, "GATEWAYS & SYSTEM", false);
+        mainRenderer.drawBox(frameBuffer, 2, 5, W - 31, 14, "GATEWAYS & CLUSTERS HIERARCHY", true);
+        mainRenderer.drawBox(frameBuffer, W - 29, 5, W, 14, "GATEWAYS & SYSTEM", false);
 
         // 2. Draw bottom panel boxes: Logs and Events
-        mainRenderer.drawBox(2, 15, W / 2, H - 2, "RECENT SYSTEM LOGS [L: Full Logs]", false);
-        mainRenderer.drawBox(W / 2 + 2, 15, W, H - 2, "RECENT EVENTS", false);
+        mainRenderer.drawBox(frameBuffer, 2, 15, W / 2, H - 2, "RECENT SYSTEM LOGS [L: Full Logs]", false);
+        mainRenderer.drawBox(frameBuffer, W / 2 + 2, 15, W, H - 2, "RECENT EVENTS", false);
 
         // 3. Render Tree Nodes into top box
         int visibleCount = 8; // Available rows inside Y=6..13
@@ -201,9 +211,9 @@ public class DashboardViewRenderer {
         if (treeWidth < 40) treeWidth = 40;
 
         if (visibleNodes.isEmpty()) {
-            NativeTerminal.printAt(4, 6, RED + "No gateways or clusters registered." + RESET);
+            frameBuffer.printAt(4, 6, RED + "No gateways or clusters registered." + RESET);
             for (int r = 7; r <= 13; r++) {
-                NativeTerminal.printAt(4, r, StrUtils.repeat(" ", treeWidth));
+                frameBuffer.printAt(4, r, StrUtils.repeat(" ", treeWidth));
             }
         } else {
             for (int i = 0; i < visibleCount; i++) {
@@ -223,30 +233,30 @@ public class DashboardViewRenderer {
                         clearedLine = truncateAnsi(clearedLine, treeWidth);
                     }
 
-                    NativeTerminal.printAt(4, y, clearedLine);
+                    frameBuffer.printAt(4, y, clearedLine);
                 } else {
-                    NativeTerminal.printAt(4, y, StrUtils.repeat(" ", treeWidth));
+                    frameBuffer.printAt(4, y, StrUtils.repeat(" ", treeWidth));
                 }
             }
 
             if (viewportStart > 0) {
-                NativeTerminal.printAt(W - 33, 5, WHITE_BOLD + "▲" + RESET);
+                frameBuffer.printAt(W - 33, 5, WHITE_BOLD + "▲" + RESET);
             }
             if (viewportStart + visibleCount < visibleNodes.size()) {
-                NativeTerminal.printAt(W - 33, 14, WHITE_BOLD + "▼" + RESET);
+                frameBuffer.printAt(W - 33, 14, WHITE_BOLD + "▼" + RESET);
             }
         }
 
         // 4. Render GATEWAYS & SYSTEM Live Metrics
         int xMetrics = W - 27;
-        NativeTerminal.printAt(xMetrics, 6, WHITE_BOLD + "SYSTEM RESOURCES" + RESET);
+        frameBuffer.printAt(xMetrics, 6, WHITE_BOLD + "SYSTEM RESOURCES" + RESET);
         long usedMem = (Runtime.getRuntime().totalMemory() - Runtime.getRuntime().freeMemory()) / (1024 * 1024);
         long allocatedMem = Runtime.getRuntime().totalMemory() / (1024 * 1024);
         long maxMem = Runtime.getRuntime().maxMemory() / (1024 * 1024);
         
-        NativeTerminal.printAt(xMetrics, 7, "RAM Used:   " + CYAN + usedMem + " MB" + RESET);
-        NativeTerminal.printAt(xMetrics, 8, "RAM Alloc:  " + CYAN + allocatedMem + " MB" + RESET);
-        NativeTerminal.printAt(xMetrics, 9, "RAM Max:    " + CYAN + maxMem + " MB" + RESET);
+        frameBuffer.printAt(xMetrics, 7, "RAM Used:   " + CYAN + usedMem + " MB" + RESET);
+        frameBuffer.printAt(xMetrics, 8, "RAM Alloc:  " + CYAN + allocatedMem + " MB" + RESET);
+        frameBuffer.printAt(xMetrics, 9, "RAM Max:    " + CYAN + maxMem + " MB" + RESET);
 
         double cpu = -1;
         try {
@@ -261,7 +271,7 @@ public class DashboardViewRenderer {
             }
         }
         String cpuStr = cpu >= 0 ? String.format("%.1f %%", cpu) : "N/A";
-        NativeTerminal.printAt(xMetrics, 10, "CPU Load:   " + YELLOW + cpuStr + RESET);
+        frameBuffer.printAt(xMetrics, 10, "CPU Load:   " + YELLOW + cpuStr + RESET);
 
         int threads = java.lang.management.ManagementFactory.getThreadMXBean().getThreadCount();
         int appThreads = 0;
@@ -283,7 +293,7 @@ public class DashboardViewRenderer {
             }
             appThreads = 1;
         }
-        NativeTerminal.printAt(xMetrics, 11, "OS Threads: " + CYAN + threads + RESET + " (App: " + CYAN + appThreads + RESET + ")");
+        frameBuffer.printAt(xMetrics, 11, "OS Threads: " + CYAN + threads + RESET + " (App: " + CYAN + appThreads + RESET + ")");
 
         int gwCount = tui.activeGateways().size();
         String gwSummary = "Gateways:   " + (gwCount == 0 ? RED + "None" + RESET : GREEN + String.valueOf(gwCount) + RESET);
@@ -292,7 +302,7 @@ public class DashboardViewRenderer {
             gwSummary += " (:" + firstPort + ")";
         }
         String summaryPadding = StrUtils.repeat(" ", Math.max(0, 26 - stripAnsi(gwSummary).length()));
-        NativeTerminal.printAt(xMetrics, 12, gwSummary + summaryPadding);
+        frameBuffer.printAt(xMetrics, 12, gwSummary + summaryPadding);
 
         // 5. Render RECENT SYSTEM LOGS
         int yLog = 16;
@@ -300,7 +310,7 @@ public class DashboardViewRenderer {
         int logsLimit = (H - 2) - 15 - 1;
         List<DebugUtils.LogEntry> dashboardLogs = DebugUtils.getDashboardLogs();
         if (dashboardLogs.isEmpty()) {
-            NativeTerminal.printAt(4, yLog, "No logs recorded yet.");
+            frameBuffer.printAt(4, yLog, "No logs recorded yet.");
             yLog++;
         } else {
             int startIdx = Math.max(0, dashboardLogs.size() - logsLimit);
@@ -312,17 +322,17 @@ public class DashboardViewRenderer {
                 String outputLine = clearedLine.substring(0, maxLogWidth);
 
                 if (entry.getLevel() == DebugUtils.LogLevel.ERROR) {
-                    NativeTerminal.printAt(4, yLog, RED + outputLine + RESET);
+                    frameBuffer.printAt(4, yLog, RED + outputLine + RESET);
                 } else if (entry.getLevel() == DebugUtils.LogLevel.INFO) {
-                    NativeTerminal.printAt(4, yLog, CYAN + outputLine + RESET);
+                    frameBuffer.printAt(4, yLog, CYAN + outputLine + RESET);
                 } else {
-                    NativeTerminal.printAt(4, yLog, outputLine);
+                    frameBuffer.printAt(4, yLog, outputLine);
                 }
                 yLog++;
             }
         }
         for (int r = yLog; r < H - 2; r++) {
-            NativeTerminal.printAt(4, r, StrUtils.repeat(" ", maxLogWidth));
+            frameBuffer.printAt(4, r, StrUtils.repeat(" ", maxLogWidth));
         }
 
         // 6. Render RECENT EVENTS
@@ -330,7 +340,7 @@ public class DashboardViewRenderer {
         int xEvents = W / 2 + 4;
         int maxEventWidth = W - xEvents - 2;
         if (state.recentEvents.isEmpty()) {
-            NativeTerminal.printAt(xEvents, eventY, GRAY + "No recent events." + RESET);
+            frameBuffer.printAt(xEvents, eventY, GRAY + "No recent events." + RESET);
             eventY++;
         } else {
             for (TuiEvent event : state.recentEvents) {
@@ -387,12 +397,12 @@ public class DashboardViewRenderer {
                 String colorized = timeStr + color + eventText + RESET;
                 int printedLen = timeStr.length() + eventText.length();
                 String padding = StrUtils.repeat(" ", Math.max(0, maxEventWidth - printedLen));
-                NativeTerminal.printAt(xEvents, eventY, colorized + padding);
+                frameBuffer.printAt(xEvents, eventY, colorized + padding);
                 eventY++;
             }
         }
         for (int row = eventY; row < H - 2; row++) {
-            NativeTerminal.printAt(xEvents, row, StrUtils.repeat(" ", maxEventWidth));
+            frameBuffer.printAt(xEvents, row, StrUtils.repeat(" ", maxEventWidth));
         }
 
         // 7. Render bottom controls
@@ -404,8 +414,8 @@ public class DashboardViewRenderer {
         }
         controlsStr.append("  [L] Logs  [Q] Exit");
 
-        NativeTerminal.printAt(2, H - 1, StrUtils.repeat(" ", W - 4));
-        NativeTerminal.printAt(2, H - 1, WHITE_BOLD + "Controls:" + RESET + controlsStr.toString());
+        frameBuffer.printAt(2, H - 1, StrUtils.repeat(" ", W - 4));
+        frameBuffer.printAt(2, H - 1, WHITE_BOLD + "Controls:" + RESET + controlsStr.toString());
     }
 
     private String buildBranchPrefix(TuiTreeNode node, List<TuiTreeNode> visibleNodes, int index) {
