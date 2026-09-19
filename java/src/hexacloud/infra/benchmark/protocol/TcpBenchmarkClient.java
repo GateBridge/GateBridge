@@ -13,14 +13,20 @@ import java.util.concurrent.atomic.AtomicBoolean;
 public class TcpBenchmarkClient {
     private final MetricsCollector metricsCollector;
     private final int timeoutMs;
+    private final boolean persistentMode;
 
     public TcpBenchmarkClient(MetricsCollector metricsCollector) {
-        this(metricsCollector, 5000);
+        this(metricsCollector, 5000, false);
     }
 
     public TcpBenchmarkClient(MetricsCollector metricsCollector, int timeoutMs) {
+        this(metricsCollector, timeoutMs, false);
+    }
+
+    public TcpBenchmarkClient(MetricsCollector metricsCollector, int timeoutMs, boolean persistentMode) {
         this.metricsCollector = metricsCollector;
         this.timeoutMs = timeoutMs;
+        this.persistentMode = persistentMode;
     }
 
     public void executeRequest(String host, int port) {
@@ -76,9 +82,54 @@ public class TcpBenchmarkClient {
 
     public void runClientLoop(String host, int port, AtomicBoolean running) {
         byte[] pingPayload = "PING\n".getBytes(StandardCharsets.UTF_8);
-        while (running.get() && !Thread.currentThread().isInterrupted()) {
-            executeRequest(host, port, pingPayload, running);
+        if (!persistentMode) {
+            while (running.get() && !Thread.currentThread().isInterrupted()) {
+                executeRequest(host, port, pingPayload, running);
+            }
+            return;
         }
+
+        Socket socket = null;
+        OutputStream os = null;
+        InputStream is = null;
+        byte[] buf = new byte[1024];
+
+        while (running.get() && !Thread.currentThread().isInterrupted()) {
+            long startTime = System.currentTimeMillis();
+            boolean success = false;
+            try {
+                if (socket == null || socket.isClosed() || !socket.isConnected()) {
+                    socket = new Socket();
+                    socket.connect(new InetSocketAddress(host, port), timeoutMs);
+                    socket.setSoTimeout(timeoutMs);
+                    os = socket.getOutputStream();
+                    is = socket.getInputStream();
+                }
+                os.write(pingPayload);
+                os.flush();
+                int read = is.read(buf);
+                success = (read >= 0);
+                if (!success) {
+                    closeQuietly(socket);
+                    socket = null;
+                    os = null;
+                    is = null;
+                }
+            } catch (Exception e) {
+                success = false;
+                closeQuietly(socket);
+                socket = null;
+                os = null;
+                is = null;
+                try { Thread.sleep(50); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); }
+            } finally {
+                long latencyMs = System.currentTimeMillis() - startTime;
+                if (success || (running.get() && !Thread.currentThread().isInterrupted())) {
+                    metricsCollector.recordRequest(latencyMs, success);
+                }
+            }
+        }
+        closeQuietly(socket);
     }
 
     private static String parseHost(String target) {

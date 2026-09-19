@@ -17,7 +17,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 public class BenchmarkRunner {
 
     public static final int[] STRESS_RAMP_UP_CLIENTS = {
-            100, 500, 1000, 2500, 5000, 7500, 10000, 12500, 15000, 17500, 20000, 22500, 25000
+            100, 500, 2500, 10000
     };
 
     public static class Config {

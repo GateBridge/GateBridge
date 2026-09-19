@@ -46,7 +46,8 @@ public class TelnetTransport implements ServerTransport {
     private void serverListen(int port, RouteRegistry registry, hexacloud.core.cluster.Cluster cluster) {
         DebugUtils.info("Telnet Transport starting to listen on port " + port);
         try {
-            serverSocket = new ServerSocket(port);
+            int backlog = Integer.getInteger("gatebridge.socket.backlog", 1024);
+            serverSocket = new ServerSocket(port, backlog);
             running = true;
             DebugUtils.info("Telnet Transport successfully bound and listening on port " + port);
             while(clusterActive) {
