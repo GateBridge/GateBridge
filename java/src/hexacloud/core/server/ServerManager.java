@@ -43,6 +43,10 @@ public class ServerManager implements ServerOperations {
     private hexacloud.core.ports.SslContextPort sslContextPort;
     private int tcpSoTimeout = 30000;
     private boolean tcpKeepAlive = true;
+    private boolean adminEnabled = Boolean.parseBoolean(System.getProperty("gatebridge.admin.enabled", "true"));
+    private String adminHost = System.getProperty("gatebridge.admin.host", "127.0.0.1");
+    private int adminPort = Integer.getInteger("gatebridge.admin.port", 9090);
+    private hexacloud.infra.server.UndertowManagementTransport managementTransport;
 
     /**
      * Primary constructor accepting all clusters. Used by LocalGatewayAdapter.
@@ -51,8 +55,16 @@ public class ServerManager implements ServerOperations {
         this.clusters = clusters != null ? clusters : new ArrayList<>();
         this.eventManager = eventManager;
         this.routeRegistry = new RouteRegistry();
-        for (Cluster cluster : this.clusters) {
-            this.routeRegistry.registerController(new ClusterController(cluster));
+        if (this.clusters.isEmpty()) {
+            hexacloud.core.cluster.Cluster defaultCluster = hexacloud.core.cluster.ClusterRegistry.getInstance().getCluster(ClusterConfig.DEFAULT_CLUSTER_NAME);
+            if (defaultCluster == null) {
+                defaultCluster = new hexacloud.core.cluster.Cluster(ClusterConfig.DEFAULT_CLUSTER_NAME, eventManager);
+            }
+            this.routeRegistry.registerController(new ClusterController(defaultCluster));
+        } else {
+            for (Cluster cluster : this.clusters) {
+                this.routeRegistry.registerController(new ClusterController(cluster));
+            }
         }
     }
 
@@ -216,12 +228,49 @@ public class ServerManager implements ServerOperations {
         return connectionRegistry;
     }
 
+    public ServerManager setAdminEnabled(boolean enabled) {
+        this.adminEnabled = enabled;
+        return this;
+    }
+
+    public boolean isAdminEnabled() {
+        return adminEnabled;
+    }
+
+    public ServerManager setAdminHost(String host) {
+        if (host != null && !host.trim().isEmpty()) {
+            this.adminHost = host.trim();
+        }
+        return this;
+    }
+
+    public String getAdminHost() {
+        return adminHost;
+    }
+
+    public ServerManager setAdminPort(int port) {
+        if (port > 0) {
+            this.adminPort = port;
+        }
+        return this;
+    }
+
+    public int getAdminPort() {
+        return adminPort;
+    }
+
     @Override
     public ServerManager listen(int port) {
         DebugUtils.info("ServerManager: Starting authorized protocol listeners on base port " + port + "...");
         
         // Stop any running transports before starting new ones
         stopTransports();
+
+        if (adminEnabled) {
+            managementTransport = new hexacloud.infra.server.UndertowManagementTransport(adminHost, adminPort, routeRegistry);
+            managementTransport.start();
+            DebugUtils.info("Management Transport (Undertow) listening on " + adminHost + ":" + adminPort);
+        }
 
         if (sweeper == null || sweeper.isShutdown()) {
             sweeper = ThreadManager.newScheduledThreadPool(1, "ConnectionCleaner");
@@ -271,7 +320,7 @@ public class ServerManager implements ServerOperations {
             activeTransports.add(tcpProxy);
         }
         
-        if(activeTransports.isEmpty()) {
+        if(activeTransports.isEmpty() && !adminEnabled) {
             DebugUtils.error("ServerManager: Cannot listen. No protocols were authorized! All are disabled.");
         }
         return this;
@@ -290,6 +339,10 @@ public class ServerManager implements ServerOperations {
     }
 
     private void stopTransports() {
+        if (managementTransport != null) {
+            managementTransport.stop();
+            managementTransport = null;
+        }
         for(ServerTransport transport : activeTransports) {
             if(transport != null && transport.isRunning()) {
                 transport.stop();

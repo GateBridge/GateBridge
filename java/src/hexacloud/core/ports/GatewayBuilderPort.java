@@ -28,6 +28,21 @@ public interface GatewayBuilderPort {
     GatewayBuilderPort port(int port);
 
     /**
+     * Set the management listening port for administrative endpoints.
+     */
+    GatewayBuilderPort adminPort(int port);
+
+    /**
+     * Set the management host interface for administrative endpoints.
+     */
+    GatewayBuilderPort adminHost(String host);
+
+    /**
+     * Build and return the configured gateway builder instance.
+     */
+    GatewayBuilderPort build();
+
+    /**
      * Set the global check interval for the ping scheduler.
      */
     GatewayBuilderPort pingInterval(int intervalInSeconds);

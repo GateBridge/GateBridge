@@ -23,7 +23,7 @@ import hexacloud.core.cluster.ClusterRegistry;
 import hexacloud.core.server.PerformanceProfile;
 import hexacloud.core.server.route.RouteRule;
 
-class LocalGatewayAdapter implements GatewayBuilderPort, RunningGatewayPort {
+public class LocalGatewayAdapter implements GatewayBuilderPort, RunningGatewayPort {
 
     private final Map<String, ClusterManager> clusterManagers = new ConcurrentHashMap<>();
     private final ClusterEventBusManager clusterEventManager;
@@ -31,6 +31,9 @@ class LocalGatewayAdapter implements GatewayBuilderPort, RunningGatewayPort {
     private String activeClusterName;
     private ServerManager serverManager;
     private int port = ClusterConfig.DEFAULT_SERVER_PORT;
+    private int adminPort = Integer.getInteger("gatebridge.admin.port", 9090);
+    private String adminHost = System.getProperty("gatebridge.admin.host", "127.0.0.1");
+    private boolean adminEnabled = Boolean.parseBoolean(System.getProperty("gatebridge.admin.enabled", "true"));
     private boolean running = false;
     private String gatewayName;
     private boolean tcpProxyEnabled = false;
@@ -40,6 +43,25 @@ class LocalGatewayAdapter implements GatewayBuilderPort, RunningGatewayPort {
     private int tcpSoTimeout = 30000;
     private boolean tcpKeepAlive = true;
     private final List<String> scanPackages = new ArrayList<>();
+
+    public static LocalGatewayAdapter builder() {
+        LocalGatewayAdapter adapter = new LocalGatewayAdapter("default-gateway");
+        adapter.enableHttp(true);
+        adapter.httpEngine(hexacloud.core.server.HttpEngine.UNDERTOW);
+        return adapter;
+    }
+
+    @Override
+    public LocalGatewayAdapter build() {
+        return this;
+    }
+
+    public LocalGatewayAdapter start() {
+        if (!running) {
+            listen(this.port - ClusterConfig.HTTP_PORT_OFFSET);
+        }
+        return this;
+    }
 
     public LocalGatewayAdapter(String gatewayName) {
         DebugUtils.info("Creating LocalGatewayAdapter for gateway: " + gatewayName);
@@ -75,6 +97,40 @@ class LocalGatewayAdapter implements GatewayBuilderPort, RunningGatewayPort {
     public LocalGatewayAdapter port(int port) {
         this.port = port;
         return this;
+    }
+
+    @Override
+    public LocalGatewayAdapter adminPort(int port) {
+        this.adminPort = port;
+        if (this.serverManager != null) {
+            this.serverManager.setAdminPort(port);
+        }
+        return this;
+    }
+
+    @Override
+    public LocalGatewayAdapter adminHost(String host) {
+        this.adminHost = host;
+        if (this.serverManager != null) {
+            this.serverManager.setAdminHost(host);
+        }
+        return this;
+    }
+
+    public LocalGatewayAdapter adminEnabled(boolean enabled) {
+        this.adminEnabled = enabled;
+        if (this.serverManager != null) {
+            this.serverManager.setAdminEnabled(enabled);
+        }
+        return this;
+    }
+
+    public int getAdminPort() {
+        return this.adminPort;
+    }
+
+    public String getAdminHost() {
+        return this.adminHost;
     }
 
     @Override
@@ -186,6 +242,9 @@ class LocalGatewayAdapter implements GatewayBuilderPort, RunningGatewayPort {
             this.serverManager.enableTcpProxy(this.tcpProxyEnabled);
             this.serverManager.tcpSoTimeout(this.tcpSoTimeout);
             this.serverManager.tcpKeepAlive(this.tcpKeepAlive);
+            this.serverManager.setAdminPort(this.adminPort);
+            this.serverManager.setAdminHost(this.adminHost);
+            this.serverManager.setAdminEnabled(this.adminEnabled);
         }
     }
 
