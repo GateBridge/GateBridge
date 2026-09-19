@@ -267,9 +267,13 @@ public class ServerManager implements ServerOperations {
         stopTransports();
 
         if (adminEnabled) {
-            managementTransport = new hexacloud.infra.server.UndertowManagementTransport(adminHost, adminPort, routeRegistry);
-            managementTransport.start();
-            DebugUtils.info("Management Transport (Undertow) listening on " + adminHost + ":" + adminPort);
+            try {
+                managementTransport = new hexacloud.infra.server.UndertowManagementTransport(adminHost, adminPort, routeRegistry);
+                managementTransport.start();
+                DebugUtils.info("Management Transport (Undertow) listening on " + adminHost + ":" + adminPort);
+            } catch (Exception e) {
+                DebugUtils.error("ServerManager", null, "Failed to start Management Transport on " + adminHost + ":" + adminPort + ": " + e.getMessage());
+            }
         }
 
         if (sweeper == null || sweeper.isShutdown()) {

@@ -143,35 +143,79 @@ JNIEXPORT jint JNICALL Java_hexacloud_core_utils_terminal_NativeTerminal_getTerm
 
 static struct termios orig_termios;
 static int raw_mode_active = 0;
+static int opened_tty_fd = -1;
+
+static int get_term_in_fd(void) {
+    if (isatty(STDIN_FILENO)) {
+        return STDIN_FILENO;
+    }
+    if (opened_tty_fd != -1) {
+        return opened_tty_fd;
+    }
+    opened_tty_fd = open("/dev/tty", O_RDWR | O_NONBLOCK);
+    if (opened_tty_fd == -1) {
+        opened_tty_fd = open("/dev/tty", O_RDONLY | O_NONBLOCK);
+    }
+    if (opened_tty_fd != -1) {
+        return opened_tty_fd;
+    }
+    return STDIN_FILENO;
+}
+
+static int get_term_out_fd(void) {
+    if (isatty(STDOUT_FILENO)) {
+        return STDOUT_FILENO;
+    }
+    int in_fd = get_term_in_fd();
+    if (in_fd != STDIN_FILENO) {
+        return in_fd;
+    }
+    return STDOUT_FILENO;
+}
+
+static void write_tty(int fd, const char *str) {
+    if (str != NULL) {
+        ssize_t ret = write(fd, str, strlen(str));
+        (void)ret;
+    }
+}
 
 JNIEXPORT void JNICALL Java_hexacloud_core_utils_terminal_NativeTerminal_initTerminal0(JNIEnv *env, jclass clazz) {
     if (raw_mode_active) return;
 
-    if (tcgetattr(STDIN_FILENO, &orig_termios) == -1) return;
+    int in_fd = get_term_in_fd();
+    if (tcgetattr(in_fd, &orig_termios) == -1) return;
 
     struct termios raw = orig_termios;
     raw.c_lflag &= ~(ECHO | ICANON);
     
-    if (tcsetattr(STDIN_FILENO, TCSAFLUSH, &raw) == -1) return;
+    if (tcsetattr(in_fd, TCSAFLUSH, &raw) == -1) return;
 
     raw_mode_active = 1;
 
-    printf("\033[2J\033[H\033[3J\033[?25l");
-    fflush(stdout);
+    int out_fd = get_term_out_fd();
+    write_tty(out_fd, "\033[2J\033[H\033[3J\033[?25l");
 }
 
 JNIEXPORT void JNICALL Java_hexacloud_core_utils_terminal_NativeTerminal_resetTerminal0(JNIEnv *env, jclass clazz) {
     if (!raw_mode_active) return;
 
-    tcsetattr(STDIN_FILENO, TCSAFLUSH, &orig_termios);
+    int in_fd = get_term_in_fd();
+    tcsetattr(in_fd, TCSAFLUSH, &orig_termios);
     raw_mode_active = 0;
-    printf("\033[?25h\033[0m\n");
-    fflush(stdout);
+
+    int out_fd = get_term_out_fd();
+    write_tty(out_fd, "\033[?25h\033[0m\n");
+
+    if (opened_tty_fd != -1) {
+        close(opened_tty_fd);
+        opened_tty_fd = -1;
+    }
 }
 
 JNIEXPORT void JNICALL Java_hexacloud_core_utils_terminal_NativeTerminal_clearScreen0(JNIEnv *env, jclass clazz) {
-    printf("\033[2J\033[H\033[3J");
-    fflush(stdout);
+    int out_fd = get_term_out_fd();
+    write_tty(out_fd, "\033[2J\033[H\033[3J");
 }
 
 JNIEXPORT void JNICALL Java_hexacloud_core_utils_terminal_NativeTerminal_printAt0(JNIEnv *env, jclass clazz, jint x, jint y, jstring text) {
@@ -179,20 +223,34 @@ JNIEXPORT void JNICALL Java_hexacloud_core_utils_terminal_NativeTerminal_printAt
     const char *str = (*env)->GetStringUTFChars(env, text, NULL);
     if (str == NULL) return;
 
-    printf("\033[%d;%dH%s", y, x, str);
-    fflush(stdout);
+    int out_fd = get_term_out_fd();
+    char buf[512];
+    int len = snprintf(buf, sizeof(buf), "\033[%d;%dH%s", y, x, str);
+    if (len > 0) {
+        if (len < (int)sizeof(buf)) {
+            write_tty(out_fd, buf);
+        } else {
+            char *dynamic_buf = (char *)malloc(len + 1);
+            if (dynamic_buf != NULL) {
+                snprintf(dynamic_buf, len + 1, "\033[%d;%dH%s", y, x, str);
+                write_tty(out_fd, dynamic_buf);
+                free(dynamic_buf);
+            }
+        }
+    }
 
     (*env)->ReleaseStringUTFChars(env, text, str);
 }
 
 JNIEXPORT jint JNICALL Java_hexacloud_core_utils_terminal_NativeTerminal_readKey0(JNIEnv *env, jclass clazz) {
-    int flags = fcntl(STDIN_FILENO, F_GETFL, 0);
+    int in_fd = get_term_in_fd();
+    int flags = fcntl(in_fd, F_GETFL, 0);
     if (flags == -1) return -1;
     
-    fcntl(STDIN_FILENO, F_SETFL, flags | O_NONBLOCK);
+    fcntl(in_fd, F_SETFL, flags | O_NONBLOCK);
 
     char c;
-    int n = read(STDIN_FILENO, &c, 1);
+    int n = read(in_fd, &c, 1);
 
     if (n > 0) {
         if (c == 27) { // Escape sequence parser
@@ -200,16 +258,16 @@ JNIEXPORT jint JNICALL Java_hexacloud_core_utils_terminal_NativeTerminal_readKey
             // Wait up to 20ms for the next bytes of the escape sequence to prevent input corruption
             int retries = 0;
             while (retries < 20) {
-                int n1 = read(STDIN_FILENO, &seq[0], 1);
+                int n1 = read(in_fd, &seq[0], 1);
                 if (n1 > 0) {
-                    int n2 = read(STDIN_FILENO, &seq[1], 1);
+                    int n2 = read(in_fd, &seq[1], 1);
                     if (n2 > 0) {
                         if (seq[0] == '[') {
                             switch (seq[1]) {
-                                case 'A': fcntl(STDIN_FILENO, F_SETFL, flags); return 1000; // UP Arrow
-                                case 'B': fcntl(STDIN_FILENO, F_SETFL, flags); return 1001; // DOWN Arrow
-                                case 'C': fcntl(STDIN_FILENO, F_SETFL, flags); return 1002; // RIGHT Arrow
-                                case 'D': fcntl(STDIN_FILENO, F_SETFL, flags); return 1003; // LEFT Arrow
+                                case 'A': fcntl(in_fd, F_SETFL, flags); return 1000; // UP Arrow
+                                case 'B': fcntl(in_fd, F_SETFL, flags); return 1001; // DOWN Arrow
+                                case 'C': fcntl(in_fd, F_SETFL, flags); return 1002; // RIGHT Arrow
+                                case 'D': fcntl(in_fd, F_SETFL, flags); return 1003; // LEFT Arrow
                             }
                         }
                         break;
@@ -219,11 +277,11 @@ JNIEXPORT jint JNICALL Java_hexacloud_core_utils_terminal_NativeTerminal_readKey
                 retries++;
             }
         }
-        fcntl(STDIN_FILENO, F_SETFL, flags);
-        return (jint)c;
+        fcntl(in_fd, F_SETFL, flags);
+        return (jint)(unsigned char)c;
     }
 
-    fcntl(STDIN_FILENO, F_SETFL, flags);
+    fcntl(in_fd, F_SETFL, flags);
     return -1;
 }
 
@@ -254,7 +312,12 @@ JNIEXPORT jboolean JNICALL Java_hexacloud_core_utils_terminal_NativeTerminal_sav
 
 JNIEXPORT jint JNICALL Java_hexacloud_core_utils_terminal_NativeTerminal_getTerminalWidth0(JNIEnv *env, jclass clazz) {
     struct winsize w;
-    if (ioctl(STDOUT_FILENO, TIOCGWINSZ, &w) == 0) {
+    int out_fd = get_term_out_fd();
+    if (ioctl(out_fd, TIOCGWINSZ, &w) == 0 && w.ws_col > 0) {
+        return (jint)w.ws_col;
+    }
+    int in_fd = get_term_in_fd();
+    if (ioctl(in_fd, TIOCGWINSZ, &w) == 0 && w.ws_col > 0) {
         return (jint)w.ws_col;
     }
     return 110;
@@ -262,7 +325,12 @@ JNIEXPORT jint JNICALL Java_hexacloud_core_utils_terminal_NativeTerminal_getTerm
 
 JNIEXPORT jint JNICALL Java_hexacloud_core_utils_terminal_NativeTerminal_getTerminalHeight0(JNIEnv *env, jclass clazz) {
     struct winsize w;
-    if (ioctl(STDOUT_FILENO, TIOCGWINSZ, &w) == 0) {
+    int out_fd = get_term_out_fd();
+    if (ioctl(out_fd, TIOCGWINSZ, &w) == 0 && w.ws_row > 0) {
+        return (jint)w.ws_row;
+    }
+    int in_fd = get_term_in_fd();
+    if (ioctl(in_fd, TIOCGWINSZ, &w) == 0 && w.ws_row > 0) {
         return (jint)w.ws_row;
     }
     return 24;
