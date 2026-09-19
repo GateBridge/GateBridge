@@ -81,7 +81,7 @@ public class TuiKeyHandler {
             state.currentView = VIEW_FULL_LOGS;
             state.selectedLogIndex = DebugUtils.getAllLogs().size() - 1;
             state.logViewportStart = 0;
-        } else if (key == 'q' || key == 'Q' || key == 27) {
+        } else if (key == 'q' || key == 'Q') {
             state.running = false;
         }
     }

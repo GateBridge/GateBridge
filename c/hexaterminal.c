@@ -248,27 +248,50 @@ JNIEXPORT jint JNICALL Java_hexacloud_core_utils_terminal_NativeTerminal_readKey
     if (n > 0) {
         if (c == 27) { // Escape sequence parser
             char seq[2];
-            // Wait up to 20ms for the next bytes of the escape sequence to prevent input corruption
             int retries = 0;
+            int n1 = 0;
             while (retries < 20) {
-                int n1 = read(in_fd, &seq[0], 1);
-                if (n1 > 0) {
-                    int n2 = read(in_fd, &seq[1], 1);
-                    if (n2 > 0) {
-                        if (seq[0] == '[') {
-                            switch (seq[1]) {
-                                case 'A': fcntl(in_fd, F_SETFL, flags); return 1000; // UP Arrow
-                                case 'B': fcntl(in_fd, F_SETFL, flags); return 1001; // DOWN Arrow
-                                case 'C': fcntl(in_fd, F_SETFL, flags); return 1002; // RIGHT Arrow
-                                case 'D': fcntl(in_fd, F_SETFL, flags); return 1003; // LEFT Arrow
-                            }
-                        }
-                        break;
-                    }
-                }
+                n1 = read(in_fd, &seq[0], 1);
+                if (n1 > 0) break;
                 usleep(1000); // Wait 1ms
                 retries++;
             }
+
+            if (n1 > 0) {
+                int n2 = 0;
+                retries = 0;
+                while (retries < 10) {
+                    n2 = read(in_fd, &seq[1], 1);
+                    if (n2 > 0) break;
+                    usleep(1000);
+                    retries++;
+                }
+
+                if (seq[0] == '[') {
+                    if (n2 > 0) {
+                        switch (seq[1]) {
+                            case 'A': fcntl(in_fd, F_SETFL, flags); return 1000; // UP Arrow
+                            case 'B': fcntl(in_fd, F_SETFL, flags); return 1001; // DOWN Arrow
+                            case 'C': fcntl(in_fd, F_SETFL, flags); return 1002; // RIGHT Arrow
+                            case 'D': fcntl(in_fd, F_SETFL, flags); return 1003; // LEFT Arrow
+                        }
+                    }
+                }
+
+                // Unrecognized escape sequence (e.g. Kitty FocusIn \033[I or device query).
+                // Drain any extra trailing bytes of this sequence safely.
+                char temp;
+                int drainCount = 0;
+                while (read(in_fd, &temp, 1) > 0 && drainCount < 32) {
+                    drainCount++;
+                    if (temp >= 0x40 && temp <= 0x7E) break; // End of ANSI sequence
+                }
+                fcntl(in_fd, F_SETFL, flags);
+                return -1; // Discard sequence
+            }
+            // Standalone ESC key pressed (no trailing sequence bytes arrived)
+            fcntl(in_fd, F_SETFL, flags);
+            return 27;
         }
         fcntl(in_fd, F_SETFL, flags);
         return (jint)(unsigned char)c;
