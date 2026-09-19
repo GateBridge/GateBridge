@@ -83,8 +83,11 @@ if [ "${BUILD_NATIVE}" -ne 0 ]; then
             gcc -shared -fPIC -o "${OUT_LIB}" -I"${JDK_INCLUDE_DIR}" -I"${JNI_OS_INCLUDE}" c/hexaterminal.c || {
                 echo "Warning: native build failed, continuing without native terminal library." >&2
             }
-            # copy to /tmp for convenience
+            # copy to /tmp and resources for convenience
             cp -f "${OUT_LIB}" /tmp/ || true
+            mkdir -p java/resources/native target/classes/native
+            cp -f "${OUT_LIB}" java/resources/native/ || true
+            cp -f "${OUT_LIB}" target/classes/native/ || true
         else
             echo "Warning: JNI OS include directory not found: ${JNI_OS_INCLUDE}. Skipping native build." >&2
         fi
@@ -113,6 +116,6 @@ else
 fi
 
 echo "Launching GateBridge application in ${MODE} mode..."
-"${JAVA_BIN}" -cp target/classes hexacloud.application.Main
+mvn exec:java -Dexec.mainClass="hexacloud.application.Main"
 
 echo "Process finished."
