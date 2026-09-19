@@ -163,13 +163,6 @@ static int get_term_in_fd(void) {
 }
 
 static int get_term_out_fd(void) {
-    if (isatty(STDOUT_FILENO)) {
-        return STDOUT_FILENO;
-    }
-    int in_fd = get_term_in_fd();
-    if (in_fd != STDIN_FILENO) {
-        return in_fd;
-    }
     return STDOUT_FILENO;
 }
 
