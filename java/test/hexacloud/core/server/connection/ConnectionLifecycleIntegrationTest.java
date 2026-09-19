@@ -77,6 +77,7 @@ public class ConnectionLifecycleIntegrationTest {
         testCluster.registerServer(tcpNode);
 
         serverManager = new ServerManager(testCluster, null);
+        serverManager.setAdminPort(findFreePort());
     }
 
     @AfterEach
@@ -287,6 +288,24 @@ public class ConnectionLifecycleIntegrationTest {
     }
 
     private int findFreePort() throws Exception {
+        for (int attempt = 0; attempt < 50; attempt++) {
+            int port;
+            try (ServerSocket s0 = new ServerSocket(0)) {
+                port = s0.getLocalPort();
+            }
+            boolean allFree = true;
+            for (int i = 0; i <= 3; i++) {
+                try (ServerSocket check = new ServerSocket(port + i)) {
+                    // Port is free
+                } catch (Exception e) {
+                    allFree = false;
+                    break;
+                }
+            }
+            if (allFree) {
+                return port;
+            }
+        }
         try (ServerSocket socket = new ServerSocket(0)) {
             return socket.getLocalPort();
         }

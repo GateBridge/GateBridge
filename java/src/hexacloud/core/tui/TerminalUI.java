@@ -206,8 +206,23 @@ public class TerminalUI implements hexacloud.core.ports.TerminalUiPort {
             while (true) {
                 if (!toggleActive) {
                     try {
-                        int key = NativeTerminal.readKey();
-                        if (key == 10 || key == 13 || key == 'm' || key == 'M') { // Enter or 'm' key
+                        boolean enterPressed = false;
+                        java.io.File ttyFile = new java.io.File("/dev/tty");
+                        if (ttyFile.exists()) {
+                            try (java.io.FileInputStream fis = new java.io.FileInputStream(ttyFile)) {
+                                int b = fis.read();
+                                if (b == 10 || b == 13 || b == 'm' || b == 'M') {
+                                    enterPressed = true;
+                                }
+                            }
+                        } else {
+                            int key = NativeTerminal.readKey();
+                            if (key == 10 || key == 13 || key == 'm' || key == 'M') {
+                                enterPressed = true;
+                            }
+                        }
+
+                        if (enterPressed) {
                             toggleActive = true;
                             
                             // This blocks until the TUI exits (state.running = false)
@@ -218,7 +233,7 @@ public class TerminalUI implements hexacloud.core.ports.TerminalUiPort {
                             System.out.println(">>> Press ENTER to open the DevOps TUI Dashboard again.");
                         }
                     } catch (Exception e) {
-                        // Ignore JNI read errors
+                        // Ignore TTY read errors
                     }
                 }
                 try {
@@ -339,12 +354,16 @@ public class TerminalUI implements hexacloud.core.ports.TerminalUiPort {
     private void startInputReader() {
         hexacloud.core.utils.concurrent.ThreadManager.startVirtual("TuiInputReader", () -> {
             while (state.running) {
-                int key = NativeTerminal.readKey();
-                if (key != -1) {
-                    synchronized (state) {
-                        keyHandler.handleKeyPress(key);
+                try {
+                    int key = NativeTerminal.readKey();
+                    if (key != -1) {
+                        synchronized (state) {
+                            keyHandler.handleKeyPress(key);
+                        }
+                        triggerRedraw(true);
                     }
-                    triggerRedraw(true);
+                } catch (Throwable t) {
+                    // Prevent virtual thread death on unexpected exception
                 }
                 try {
                     Thread.sleep(50);
@@ -356,16 +375,24 @@ public class TerminalUI implements hexacloud.core.ports.TerminalUiPort {
     }
 
     private void executeRedrawLoop() {
+        long lastRedrawNano = 0;
+        final long minFrameIntervalMs = 33; // ~30 FPS ceiling
+
         while (state.running) {
             try {
                 // Block until an event releases the semaphore
                 redrawSemaphore.acquire();
-                
-                if (bypassDebounce) {
+
+                long nowNano = System.nanoTime();
+                long elapsedMs = (lastRedrawNano == 0) ? minFrameIntervalMs : (nowNano - lastRedrawNano) / 1_000_000L;
+
+                boolean isBypass = bypassDebounce;
+                if (isBypass) {
                     bypassDebounce = false;
-                } else {
-                    // Debounce/Coalesce: sleep 15ms to group rapid multiple events
-                    Thread.sleep(15);
+                }
+
+                if (!isBypass && elapsedMs < minFrameIntervalMs) {
+                    Thread.sleep(minFrameIntervalMs - elapsedMs);
                 }
                 redrawSemaphore.drainPermits();
 
@@ -379,6 +406,7 @@ public class TerminalUI implements hexacloud.core.ports.TerminalUiPort {
                     fetchGlobalConfig();
 
                     renderer.draw();
+                    lastRedrawNano = System.nanoTime();
                 }
             } catch (InterruptedException e) {
                 break;
@@ -454,6 +482,11 @@ public class TerminalUI implements hexacloud.core.ports.TerminalUiPort {
             if (activeGw != null) {
                 cfg.gatewayName = activeGw.getGatewayName();
                 cfg.port = activeGw.getPort();
+                if (activeGw instanceof hexacloud.infra.gateway.LocalGatewayAdapter) {
+                    cfg.adminPort = ((hexacloud.infra.gateway.LocalGatewayAdapter) activeGw).getAdminPort();
+                } else {
+                    cfg.adminPort = Integer.getInteger("gatebridge.admin.port", 9090);
+                }
                 cfg.telnetEnabled = activeGw.isTelnetEnabled();
                 cfg.httpEnabled = activeGw.isHttpEnabled();
                 cfg.wsEnabled = activeGw.isWsEnabled();
@@ -463,6 +496,7 @@ public class TerminalUI implements hexacloud.core.ports.TerminalUiPort {
             } else {
                 Integer configuredPort = gatewayPorts.get(clusterName);
                 cfg.port = (configuredPort != null) ? configuredPort : 3000;
+                cfg.adminPort = Integer.getInteger("gatebridge.admin.port", 9090);
                 cfg.gatewayName = "gw-" + cfg.port;
                 cfg.running = false;
             }

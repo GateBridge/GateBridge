@@ -217,7 +217,27 @@ public class L4RoutingTest {
     }
 
     private int findFreePort() throws Exception {
+        for (int attempt = 0; attempt < 50; attempt++) {
+            int port;
+            try (ServerSocket s0 = new ServerSocket(0)) {
+                s0.setReuseAddress(true);
+                port = s0.getLocalPort();
+            }
+            boolean allFree = true;
+            for (int i = 0; i <= 3; i++) {
+                try (ServerSocket check = new ServerSocket(port + i)) {
+                    check.setReuseAddress(true);
+                } catch (Exception e) {
+                    allFree = false;
+                    break;
+                }
+            }
+            if (allFree) {
+                return port;
+            }
+        }
         try (ServerSocket socket = new ServerSocket(0)) {
+            socket.setReuseAddress(true);
             return socket.getLocalPort();
         }
     }

@@ -2,6 +2,7 @@ package hexacloud.core.tui.view;
 
 import java.util.List;
 import hexacloud.core.tui.TerminalUI;
+import hexacloud.core.tui.TuiFrameBuffer;
 import hexacloud.core.tui.TuiRenderer;
 import hexacloud.core.tui.TuiState;
 import hexacloud.core.utils.common.DebugUtils;
@@ -23,13 +24,22 @@ public class FullLogsViewRenderer {
     }
 
     public void draw() {
+        int W = NativeTerminal.getTerminalWidth();
+        int H = NativeTerminal.getTerminalHeight();
+        TuiFrameBuffer frameBuffer = new TuiFrameBuffer(W, H);
+        frameBuffer.beginFrame();
+        draw(frameBuffer);
+        frameBuffer.flushToTerminal();
+    }
+
+    public void draw(TuiFrameBuffer frameBuffer) {
         TuiState state = tui.state();
         int W = NativeTerminal.getTerminalWidth();
         int H = NativeTerminal.getTerminalHeight();
         if (W < 110) W = 110;
         if (H < 24) H = 24;
 
-        mainRenderer.drawBox(2, 5, W, H - 2, "DETAILED SYSTEM LOGS", true);
+        mainRenderer.drawBox(frameBuffer, 2, 5, W, H - 2, "DETAILED SYSTEM LOGS", true);
 
         List<DebugUtils.LogEntry> logs = DebugUtils.getAllLogs();
         int y = 6;
@@ -38,7 +48,7 @@ public class FullLogsViewRenderer {
         tui.adjustLogsViewport(logs.size(), viewportHeight);
 
         if (logs.isEmpty()) {
-            NativeTerminal.printAt(4, y, "No logs recorded yet.");
+            frameBuffer.printAt(4, y, "No logs recorded yet.");
             y++;
         } else {
             int maxLineWidth = W - 7;
@@ -54,28 +64,28 @@ public class FullLogsViewRenderer {
                 String outputLine = clearedLine.substring(0, maxLineWidth);
 
                 if (entry.getLevel() == DebugUtils.LogLevel.ERROR) {
-                    NativeTerminal.printAt(4, y, RED + outputLine + RESET);
+                    frameBuffer.printAt(4, y, RED + outputLine + RESET);
                 } else if (entry.getLevel() == DebugUtils.LogLevel.INFO) {
-                    NativeTerminal.printAt(4, y, CYAN + outputLine + RESET);
+                    frameBuffer.printAt(4, y, CYAN + outputLine + RESET);
                 } else {
-                    NativeTerminal.printAt(4, y, outputLine);
+                    frameBuffer.printAt(4, y, outputLine);
                 }
                 y++;
             }
             if (state.logViewportStart > 0) {
-                NativeTerminal.printAt(W - 2, 6, WHITE_BOLD + "▲" + RESET);
+                frameBuffer.printAt(W - 2, 6, WHITE_BOLD + "▲" + RESET);
             }
             if (state.logViewportStart + viewportHeight < logs.size()) {
-                NativeTerminal.printAt(W - 2, H - 3, WHITE_BOLD + "▼" + RESET);
+                frameBuffer.printAt(W - 2, H - 3, WHITE_BOLD + "▼" + RESET);
             }
         }
 
         // Clear any remaining lines in viewport
         for (int r = y; r <= H - 3; r++) {
-            NativeTerminal.printAt(4, r, StrUtils.repeat(" ", W - 7));
+            frameBuffer.printAt(4, r, StrUtils.repeat(" ", W - 7));
         }
 
-        NativeTerminal.printAt(2, H - 1, StrUtils.repeat(" ", W - 4));
-        NativeTerminal.printAt(2, H - 1, WHITE_BOLD + "Controls:" + RESET + " [Backspace] Back to Dashboard  [UP/DOWN] Scroll logs");
+        frameBuffer.printAt(2, H - 1, StrUtils.repeat(" ", W - 4));
+        frameBuffer.printAt(2, H - 1, WHITE_BOLD + "Controls:" + RESET + " [Backspace] Back to Dashboard  [UP/DOWN] Scroll logs");
     }
 }

@@ -70,6 +70,9 @@ if [ "${BUILD_NATIVE}" -ne 0 ]; then
                 echo "Warning: native build failed, continuing without native terminal library." >&2
             }
             cp -f "${OUT_LIB}" /tmp/ || true
+            mkdir -p java/resources/native target/classes/native
+            cp -f "${OUT_LIB}" java/resources/native/ || true
+            cp -f "${OUT_LIB}" target/classes/native/ || true
         fi
     fi
 fi
@@ -92,4 +95,4 @@ else
 fi
 
 # Launch GateBridge TerminalMain TUI Bootstrap
-"${JAVA_BIN}" -cp target/classes hexacloud.application.TerminalMain
+mvn exec:java -Dexec.mainClass="hexacloud.application.TerminalMain"

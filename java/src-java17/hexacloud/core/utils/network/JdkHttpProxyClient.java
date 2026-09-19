@@ -11,12 +11,21 @@ import java.util.List;
 import java.util.concurrent.Executors;
 
 public class JdkHttpProxyClient implements HttpProxyClient {
+    static {
+        if (System.getProperty("jdk.httpclient.connectionPoolSize") == null) {
+            System.setProperty("jdk.httpclient.connectionPoolSize", "500");
+        }
+    }
+
     private final HttpClient client;
 
     public JdkHttpProxyClient() {
+        if (System.getProperty("jdk.httpclient.connectionPoolSize") == null) {
+            System.setProperty("jdk.httpclient.connectionPoolSize", "500");
+        }
         this.client = HttpClient.newBuilder()
                 .version(HttpClient.Version.HTTP_1_1)
-                .connectTimeout(Duration.ofSeconds(10))
+                .connectTimeout(Duration.ofSeconds(5))
                 .followRedirects(HttpClient.Redirect.NEVER)
                 .executor(Executors.newCachedThreadPool())
                 .build();
