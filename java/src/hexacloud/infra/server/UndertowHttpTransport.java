@@ -144,7 +144,7 @@ public class UndertowHttpTransport implements ServerTransport {
                             && (activeFilters.isEmpty() || (activeFilters.size() == 1 && activeFilters.get(0) instanceof CorsFilter));
 
                     if (canUseFastPath) {
-                        processRequest(exchange, registry, resolution);
+                        processRequest(exchange, registry, resolution, true);
                         return;
                     }
 
@@ -153,7 +153,7 @@ public class UndertowHttpTransport implements ServerTransport {
                         if (cap <= 0 || activeRequests.incrementAndGet() <= cap) {
                             exchange.dispatch(virtualExecutor, () -> {
                                 try {
-                                    processRequest(exchange, registry, resolution);
+                                    processRequest(exchange, registry, resolution, false);
                                 } catch (Exception e) {
                                     handleError(exchange, e);
                                 } finally {
@@ -168,7 +168,7 @@ public class UndertowHttpTransport implements ServerTransport {
                         }
                         return;
                     }
-                    processRequest(exchange, registry, resolution);
+                    processRequest(exchange, registry, resolution, false);
                 }
             });
 
@@ -205,7 +205,7 @@ public class UndertowHttpTransport implements ServerTransport {
         return String.valueOf(ATOMIC_ID_COUNTER.incrementAndGet());
     }
 
-    private void processRequest(HttpServerExchange exchange, RouteRegistry registry, RouteResolution resolution) {
+    private void processRequest(HttpServerExchange exchange, RouteRegistry registry, RouteResolution resolution, boolean canUseFastPath) {
         ConnectionContext legacyCtx = null;
         boolean registryEnabled = Boolean.parseBoolean(System.getProperty("gatebridge.connection.registry.enabled", "true"));
         boolean socketLifecycleEnabled = Boolean.parseBoolean(System.getProperty("gatebridge.socket.lifecycle.enabled", "true"));
@@ -246,10 +246,6 @@ public class UndertowHttpTransport implements ServerTransport {
         try {
             try {
                 UndertowHttpRequestImpl req = new UndertowHttpRequestImpl(exchange);
-
-                boolean canUseFastPath = isFastPathEnabled() && resolution.isLocal() 
-                        && registry.isRouteFastPath(resolution.localRouteName())
-                        && (activeFilters.isEmpty() || (activeFilters.size() == 1 && activeFilters.get(0) instanceof CorsFilter));
 
                 if (canUseFastPath) {
                     // Set CORS headers directly
@@ -354,19 +350,21 @@ public class UndertowHttpTransport implements ServerTransport {
             // Check if there is an internal cluster administration route
             RouteRegistry clusterRegistry = targetCluster.getRouteRegistry();
             String clusterRouteKey = resolution.resolveTargetRouteKey();
-            if (clusterRegistry != null && clusterRouteKey != null && clusterRegistry.getRoutes().containsKey(clusterRouteKey)) {
+            if (clusterRegistry != null && clusterRouteKey != null) {
                 BiConsumer<String, PrintWriter> handler = clusterRegistry.getRoutes().get(clusterRouteKey);
-                if (clusterRouteKey.equals("/V1/GET_NODES_JSON")) {
-                    s.setContentType("application/json");
-                } else {
-                    s.setContentType("text/plain");
+                if (handler != null) {
+                    if (clusterRouteKey.equals("/V1/GET_NODES_JSON")) {
+                        s.setContentType("application/json");
+                    } else {
+                        s.setContentType("text/plain");
+                    }
+                    try (PrintWriter out = s.getWriter()) {
+                        String query = r.getQuery();
+                        String args = query != null ? query : "";
+                        handler.accept(args, out);
+                    }
+                    return;
                 }
-                try (PrintWriter out = s.getWriter()) {
-                    String query = r.getQuery();
-                    String args = query != null ? query : "";
-                    handler.accept(args, out);
-                }
-                return;
             }
 
             reverseProxyService.proxyRequest(r, s, targetCluster, resolution.targetSubpath(), targetCluster.getTimeoutMs(), resolution.matchedRouteRule());
