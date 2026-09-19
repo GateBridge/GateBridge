@@ -356,17 +356,20 @@ public class TerminalUI implements hexacloud.core.ports.TerminalUiPort {
     }
 
     private void executeRedrawLoop() {
+        long lastRedrawTime = 0;
+        final long minFrameIntervalMs = 33; // ~30 FPS ceiling
+
         while (state.running) {
             try {
                 // Block until an event releases the semaphore
                 redrawSemaphore.acquire();
                 
-                if (bypassDebounce) {
-                    bypassDebounce = false;
-                } else {
-                    // Debounce/Coalesce: sleep 15ms to group rapid multiple events
-                    Thread.sleep(15);
+                long now = System.currentTimeMillis();
+                long elapsed = now - lastRedrawTime;
+                if (elapsed < minFrameIntervalMs && !bypassDebounce) {
+                    Thread.sleep(minFrameIntervalMs - elapsed);
                 }
+                bypassDebounce = false;
                 redrawSemaphore.drainPermits();
 
                 if (state.running) {
@@ -379,6 +382,7 @@ public class TerminalUI implements hexacloud.core.ports.TerminalUiPort {
                     fetchGlobalConfig();
 
                     renderer.draw();
+                    lastRedrawTime = System.currentTimeMillis();
                 }
             } catch (InterruptedException e) {
                 break;
