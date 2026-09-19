@@ -206,8 +206,23 @@ public class TerminalUI implements hexacloud.core.ports.TerminalUiPort {
             while (true) {
                 if (!toggleActive) {
                     try {
-                        int key = NativeTerminal.readKey();
-                        if (key == 10 || key == 13 || key == 'm' || key == 'M') { // Enter or 'm' key
+                        boolean enterPressed = false;
+                        java.io.File ttyFile = new java.io.File("/dev/tty");
+                        if (ttyFile.exists()) {
+                            try (java.io.FileInputStream fis = new java.io.FileInputStream(ttyFile)) {
+                                int b = fis.read();
+                                if (b == 10 || b == 13 || b == 'm' || b == 'M') {
+                                    enterPressed = true;
+                                }
+                            }
+                        } else {
+                            int key = NativeTerminal.readKey();
+                            if (key == 10 || key == 13 || key == 'm' || key == 'M') {
+                                enterPressed = true;
+                            }
+                        }
+
+                        if (enterPressed) {
                             toggleActive = true;
                             
                             // This blocks until the TUI exits (state.running = false)
@@ -218,7 +233,7 @@ public class TerminalUI implements hexacloud.core.ports.TerminalUiPort {
                             System.out.println(">>> Press ENTER to open the DevOps TUI Dashboard again.");
                         }
                     } catch (Exception e) {
-                        // Ignore JNI read errors
+                        // Ignore TTY read errors
                     }
                 }
                 try {
