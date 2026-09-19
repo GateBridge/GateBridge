@@ -354,12 +354,16 @@ public class TerminalUI implements hexacloud.core.ports.TerminalUiPort {
     private void startInputReader() {
         hexacloud.core.utils.concurrent.ThreadManager.startVirtual("TuiInputReader", () -> {
             while (state.running) {
-                int key = NativeTerminal.readKey();
-                if (key != -1) {
-                    synchronized (state) {
-                        keyHandler.handleKeyPress(key);
+                try {
+                    int key = NativeTerminal.readKey();
+                    if (key != -1) {
+                        synchronized (state) {
+                            keyHandler.handleKeyPress(key);
+                        }
+                        triggerRedraw(true);
                     }
-                    triggerRedraw(true);
+                } catch (Throwable t) {
+                    // Prevent virtual thread death on unexpected exception
                 }
                 try {
                     Thread.sleep(50);

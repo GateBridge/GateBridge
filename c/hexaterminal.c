@@ -142,6 +142,7 @@ JNIEXPORT jint JNICALL Java_hexacloud_core_utils_terminal_NativeTerminal_getTerm
 #include <sys/ioctl.h>
 
 static struct termios orig_termios;
+static int orig_in_flags = -1;
 static int raw_mode_active = 0;
 static int opened_tty_fd = -1;
 
@@ -184,6 +185,11 @@ JNIEXPORT void JNICALL Java_hexacloud_core_utils_terminal_NativeTerminal_initTer
     
     if (tcsetattr(in_fd, TCSAFLUSH, &raw) == -1) return;
 
+    orig_in_flags = fcntl(in_fd, F_GETFL, 0);
+    if (orig_in_flags != -1) {
+        fcntl(in_fd, F_SETFL, orig_in_flags | O_NONBLOCK);
+    }
+
     raw_mode_active = 1;
 
     int out_fd = get_term_out_fd();
@@ -195,6 +201,10 @@ JNIEXPORT void JNICALL Java_hexacloud_core_utils_terminal_NativeTerminal_resetTe
 
     int in_fd = get_term_in_fd();
     tcsetattr(in_fd, TCSAFLUSH, &orig_termios);
+    if (orig_in_flags != -1) {
+        fcntl(in_fd, F_SETFL, orig_in_flags);
+        orig_in_flags = -1;
+    }
     raw_mode_active = 0;
 
     int out_fd = get_term_out_fd();
@@ -237,11 +247,6 @@ JNIEXPORT void JNICALL Java_hexacloud_core_utils_terminal_NativeTerminal_printAt
 
 JNIEXPORT jint JNICALL Java_hexacloud_core_utils_terminal_NativeTerminal_readKey0(JNIEnv *env, jclass clazz) {
     int in_fd = get_term_in_fd();
-    int flags = fcntl(in_fd, F_GETFL, 0);
-    if (flags == -1) return -1;
-    
-    fcntl(in_fd, F_SETFL, flags | O_NONBLOCK);
-
     char c;
     int n = read(in_fd, &c, 1);
 
@@ -270,10 +275,10 @@ JNIEXPORT jint JNICALL Java_hexacloud_core_utils_terminal_NativeTerminal_readKey
                 if (seq[0] == '[') {
                     if (n2 > 0) {
                         switch (seq[1]) {
-                            case 'A': fcntl(in_fd, F_SETFL, flags); return 1000; // UP Arrow
-                            case 'B': fcntl(in_fd, F_SETFL, flags); return 1001; // DOWN Arrow
-                            case 'C': fcntl(in_fd, F_SETFL, flags); return 1002; // RIGHT Arrow
-                            case 'D': fcntl(in_fd, F_SETFL, flags); return 1003; // LEFT Arrow
+                            case 'A': return 1000; // UP Arrow
+                            case 'B': return 1001; // DOWN Arrow
+                            case 'C': return 1002; // RIGHT Arrow
+                            case 'D': return 1003; // LEFT Arrow
                         }
                     }
                 }
@@ -286,18 +291,14 @@ JNIEXPORT jint JNICALL Java_hexacloud_core_utils_terminal_NativeTerminal_readKey
                     drainCount++;
                     if (temp >= 0x40 && temp <= 0x7E) break; // End of ANSI sequence
                 }
-                fcntl(in_fd, F_SETFL, flags);
                 return -1; // Discard sequence
             }
             // Standalone ESC key pressed (no trailing sequence bytes arrived)
-            fcntl(in_fd, F_SETFL, flags);
             return 27;
         }
-        fcntl(in_fd, F_SETFL, flags);
         return (jint)(unsigned char)c;
     }
 
-    fcntl(in_fd, F_SETFL, flags);
     return -1;
 }
 
