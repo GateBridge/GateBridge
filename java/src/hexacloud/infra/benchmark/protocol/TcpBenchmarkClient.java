@@ -75,48 +75,10 @@ public class TcpBenchmarkClient {
     }
 
     public void runClientLoop(String host, int port, AtomicBoolean running) {
-        Socket socket = null;
-        OutputStream os = null;
-        InputStream is = null;
         byte[] pingPayload = "PING\n".getBytes(StandardCharsets.UTF_8);
-        byte[] buf = new byte[1024];
-
         while (running.get() && !Thread.currentThread().isInterrupted()) {
-            long startTime = System.currentTimeMillis();
-            boolean success = false;
-            try {
-                if (socket == null || socket.isClosed() || !socket.isConnected()) {
-                    socket = new Socket();
-                    socket.connect(new InetSocketAddress(host, port), timeoutMs);
-                    socket.setSoTimeout(timeoutMs);
-                    os = socket.getOutputStream();
-                    is = socket.getInputStream();
-                }
-                os.write(pingPayload);
-                os.flush();
-                int read = is.read(buf);
-                success = (read >= 0);
-                if (!success) {
-                    closeQuietly(socket);
-                    socket = null;
-                    os = null;
-                    is = null;
-                }
-            } catch (Exception e) {
-                success = false;
-                closeQuietly(socket);
-                socket = null;
-                os = null;
-                is = null;
-                try { Thread.sleep(50); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); }
-            } finally {
-                long latencyMs = System.currentTimeMillis() - startTime;
-                if (success || (running.get() && !Thread.currentThread().isInterrupted())) {
-                    metricsCollector.recordRequest(latencyMs, success);
-                }
-            }
+            executeRequest(host, port, pingPayload, running);
         }
-        closeQuietly(socket);
     }
 
     private static String parseHost(String target) {
