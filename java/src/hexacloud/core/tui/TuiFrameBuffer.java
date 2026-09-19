@@ -39,7 +39,8 @@ public class TuiFrameBuffer {
     }
 
     public void flushToTerminal() {
-        System.out.print(buildFrameString());
-        System.out.flush();
+        java.io.PrintStream out = hexacloud.core.utils.common.DebugUtils.getOriginalOut();
+        out.print(buildFrameString());
+        out.flush();
     }
 }

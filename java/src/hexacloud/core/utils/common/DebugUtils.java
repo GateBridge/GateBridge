@@ -65,6 +65,14 @@ public class DebugUtils {
     private static final java.io.PrintStream originalOut = System.out;
     private static final java.io.PrintStream originalErr = System.err;
 
+    public static java.io.PrintStream getOriginalOut() {
+        return originalOut;
+    }
+
+    public static java.io.PrintStream getOriginalErr() {
+        return originalErr;
+    }
+
     public static void setDebugEnabled(boolean enabled) {
         debugEnabled = enabled;
     }

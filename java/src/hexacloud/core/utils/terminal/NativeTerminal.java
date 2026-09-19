@@ -134,8 +134,8 @@ public class NativeTerminal {
                 new ProcessBuilder("sh", "-c", "stty raw -echo < /dev/tty").start().waitFor();
                 sttyRawModeActive = true;
                 // Clear screen and hide cursor using ANSI escape code
-                System.out.print("\033[2J\033[H\033[3J\033[?25l");
-                System.out.flush();
+                hexacloud.core.utils.common.DebugUtils.getOriginalOut().print("\033[2J\033[H\033[3J\033[?25l");
+                hexacloud.core.utils.common.DebugUtils.getOriginalOut().flush();
             }
         } catch (Exception e) {
             // Ignore
@@ -156,8 +156,8 @@ public class NativeTerminal {
                 new ProcessBuilder("sh", "-c", "stty sane < /dev/tty").start().waitFor();
                 sttyRawModeActive = false;
                 // Show cursor
-                System.out.print("\033[?25h\033[0m\n");
-                System.out.flush();
+                hexacloud.core.utils.common.DebugUtils.getOriginalOut().print("\033[?25h\033[0m\n");
+                hexacloud.core.utils.common.DebugUtils.getOriginalOut().flush();
             } catch (Exception e) {
                 // Ignore
             }
@@ -174,13 +174,13 @@ public class NativeTerminal {
             }
         }
         // ANSI escape sequence to clear screen, move cursor home and clear scrollback buffer
-        System.out.print("\u001B[2J\u001B[H\u001B[3J");
-        System.out.flush();
+        hexacloud.core.utils.common.DebugUtils.getOriginalOut().print("\u001B[2J\u001B[H\u001B[3J");
+        hexacloud.core.utils.common.DebugUtils.getOriginalOut().flush();
     }
 
     public static synchronized void cursorHome() {
-        System.out.print("\u001B[H");
-        System.out.flush();
+        hexacloud.core.utils.common.DebugUtils.getOriginalOut().print("\u001B[H");
+        hexacloud.core.utils.common.DebugUtils.getOriginalOut().flush();
     }
 
 
@@ -194,8 +194,8 @@ public class NativeTerminal {
             }
         }
         // ANSI escape sequence to position cursor at y, x and print text
-        System.out.print("\u001B[" + y + ";" + x + "H" + text);
-        System.out.flush();
+        hexacloud.core.utils.common.DebugUtils.getOriginalOut().print("\u001B[" + y + ";" + x + "H" + text);
+        hexacloud.core.utils.common.DebugUtils.getOriginalOut().flush();
     }
 
     public static synchronized int readKey() {
