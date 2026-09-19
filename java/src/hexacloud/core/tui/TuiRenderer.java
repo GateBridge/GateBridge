@@ -24,7 +24,7 @@ public class TuiRenderer {
     }
 
     public void draw() {
-        NativeTerminal.clearScreen();
+        NativeTerminal.cursorHome();
         TuiState state = tui.state();
 
         switch (state.currentView) {

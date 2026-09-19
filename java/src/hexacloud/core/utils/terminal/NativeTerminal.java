@@ -178,6 +178,12 @@ public class NativeTerminal {
         System.out.flush();
     }
 
+    public static synchronized void cursorHome() {
+        System.out.print("\u001B[H");
+        System.out.flush();
+    }
+
+
     public static synchronized void printAt(int x, int y, String text) {
         if (loaded) {
             try {
