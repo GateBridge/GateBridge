@@ -124,16 +124,13 @@ public class ClusterDetailViewRenderer {
             for (int i = startIdx; i < filteredLogs.size(); i++) {
                 DebugUtils.LogEntry entry = filteredLogs.get(i);
                 String logLine = entry.toString();
-                StringBuilder clearedLine = new StringBuilder(logLine);
-                while (clearedLine.length() < maxLineWidth) clearedLine.append(" ");
-                String outputLine = clearedLine.substring(0, maxLineWidth);
 
                 if (entry.getLevel() == DebugUtils.LogLevel.ERROR) {
-                    frameBuffer.printAt(4, y, RED + outputLine + RESET);
+                    frameBuffer.printAt(4, y, RED + logLine + RESET);
                 } else if (entry.getLevel() == DebugUtils.LogLevel.INFO) {
-                    frameBuffer.printAt(4, y, CYAN + outputLine + RESET);
+                    frameBuffer.printAt(4, y, CYAN + logLine + RESET);
                 } else {
-                    frameBuffer.printAt(4, y, outputLine);
+                    frameBuffer.printAt(4, y, logLine);
                 }
                 y++;
             }

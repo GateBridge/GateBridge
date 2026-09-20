@@ -57,8 +57,7 @@ public class FullLogsViewRenderer {
                 DebugUtils.LogEntry entry = logs.get(index);
                 String logLine = entry.toString();
                 String prefix = index == state.selectedLogIndex ? "➔ " : "  ";
-                String lineText = prefix + logLine;
-                String outputLine = lineText.length() > maxLineWidth ? lineText.substring(0, maxLineWidth) : lineText + StrUtils.repeat(" ", maxLineWidth - lineText.length());
+                String outputLine = prefix + logLine;
 
                 if (entry.getLevel() == DebugUtils.LogLevel.ERROR) {
                     frameBuffer.printAt(4, y, RED + outputLine + RESET);
