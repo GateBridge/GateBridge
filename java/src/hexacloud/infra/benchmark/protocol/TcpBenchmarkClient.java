@@ -13,14 +13,20 @@ import java.util.concurrent.atomic.AtomicBoolean;
 public class TcpBenchmarkClient {
     private final MetricsCollector metricsCollector;
     private final int timeoutMs;
+    private final boolean persistentMode;
 
     public TcpBenchmarkClient(MetricsCollector metricsCollector) {
-        this(metricsCollector, 5000);
+        this(metricsCollector, 5000, false);
     }
 
     public TcpBenchmarkClient(MetricsCollector metricsCollector, int timeoutMs) {
+        this(metricsCollector, timeoutMs, false);
+    }
+
+    public TcpBenchmarkClient(MetricsCollector metricsCollector, int timeoutMs, boolean persistentMode) {
         this.metricsCollector = metricsCollector;
         this.timeoutMs = timeoutMs;
+        this.persistentMode = persistentMode;
     }
 
     public void executeRequest(String host, int port) {
@@ -75,10 +81,17 @@ public class TcpBenchmarkClient {
     }
 
     public void runClientLoop(String host, int port, AtomicBoolean running) {
+        byte[] pingPayload = "PING\n".getBytes(StandardCharsets.UTF_8);
+        if (!persistentMode) {
+            while (running.get() && !Thread.currentThread().isInterrupted()) {
+                executeRequest(host, port, pingPayload, running);
+            }
+            return;
+        }
+
         Socket socket = null;
         OutputStream os = null;
         InputStream is = null;
-        byte[] pingPayload = "PING\n".getBytes(StandardCharsets.UTF_8);
         byte[] buf = new byte[1024];
 
         while (running.get() && !Thread.currentThread().isInterrupted()) {

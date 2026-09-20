@@ -29,10 +29,15 @@ import static org.junit.jupiter.api.Assertions.*;
 public class L7TraceabilityHeadersTest {
 
     private int findFreePort() throws Exception {
-        try (ServerSocket socket = new ServerSocket(0)) {
-            socket.setReuseAddress(true);
-            return socket.getLocalPort();
+        for (int i = 0; i < 50; i++) {
+            try (ServerSocket socket1 = new ServerSocket(0)) {
+                int port = socket1.getLocalPort();
+                try (ServerSocket socket2 = new ServerSocket(port + 1)) {
+                    return port;
+                } catch (Exception ignored) {}
+            } catch (Exception ignored) {}
         }
+        return 9090;
     }
 
     private void runTraceabilityTest(ServerTransport transport, boolean sendExistingXff) throws Exception {

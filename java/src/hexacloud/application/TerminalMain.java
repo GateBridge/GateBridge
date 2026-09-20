@@ -35,10 +35,10 @@ public class TerminalMain {
         RunningGatewayPort runningGateway = builder.listen()
             .startPingScheduler();
 
-        // Launch the DevOps Panel in non-blocking toggle mode (detach/reattach with ENTER)
+        // Launch the DevOps Panel in full-screen mode on boot
         TerminalUiFactory.createTui("MyCompany - GateBridge DevOps Panel")
             .seedGateway(runningGateway)
             .redirectSystemOut(true)
-            .startToggleMode();
+            .start();
     }
 }

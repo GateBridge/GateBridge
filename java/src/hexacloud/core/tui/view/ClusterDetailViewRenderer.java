@@ -5,6 +5,7 @@ import hexacloud.core.cluster.Cluster;
 import hexacloud.core.cluster.ClusterRegistry;
 import hexacloud.core.model.ServerNode;
 import hexacloud.core.tui.TerminalUI;
+import hexacloud.core.tui.TuiFrameBuffer;
 import hexacloud.core.tui.TuiRenderer;
 import hexacloud.core.tui.TuiState;
 import hexacloud.core.utils.common.DebugUtils;
@@ -26,45 +27,52 @@ public class ClusterDetailViewRenderer {
     }
 
     public void draw() {
-        TuiState state = tui.state();
         int W = NativeTerminal.getTerminalWidth();
         int H = NativeTerminal.getTerminalHeight();
-        if (W < 110) W = 110;
-        if (H < 24) H = 24;
+        TuiFrameBuffer frameBuffer = new TuiFrameBuffer(W, H);
+        frameBuffer.beginFrame();
+        draw(frameBuffer);
+        frameBuffer.flushToTerminal();
+    }
 
-        mainRenderer.drawBox(2, 5, 29, 14, "POLICIES & LIMITS", false);
-        mainRenderer.drawBox(31, 5, W, 14, "SERVICES / TELEMETRY (" + state.nodes.size() + ")", true);
-        mainRenderer.drawBox(2, 15, W, H - 2, "CONSOLE LOGS FOR " + state.selectedClusterName, false);
+    public void draw(TuiFrameBuffer frameBuffer) {
+        TuiState state = tui.state();
+        int W = Math.max(80, frameBuffer.getWidth());
+        int H = Math.max(24, frameBuffer.getHeight());
 
-        NativeTerminal.printAt(4, 6, WHITE_BOLD + "Active:   " + RESET + state.selectedClusterName);
-        NativeTerminal.printAt(4, 7, "Security: " + (state.targetRequireToken ? GREEN + "Token Required" + RESET : YELLOW + "Optional" + RESET));
+        mainRenderer.drawBox(frameBuffer, 2, 5, 29, 14, "POLICIES & LIMITS", false);
+        mainRenderer.drawBox(frameBuffer, 31, 5, W, 14, "SERVICES / TELEMETRY (" + state.nodes.size() + ")", true);
+        mainRenderer.drawBox(frameBuffer, 2, 15, W, H - 2, "CONSOLE LOGS FOR " + state.selectedClusterName, false);
+
+        frameBuffer.printAt(4, 6, WHITE_BOLD + "Active:   " + RESET + state.selectedClusterName);
+        frameBuffer.printAt(4, 7, "Security: " + (state.targetRequireToken ? GREEN + "Token Required" + RESET : YELLOW + "Optional" + RESET));
         
         Cluster currentCluster = ClusterRegistry.getInstance().getCluster(state.selectedClusterName);
         String secretDisplay = (currentCluster != null && currentCluster.getSecret() != null && !currentCluster.getSecret().isEmpty()) ? currentCluster.getSecret() : "None";
         if (secretDisplay.length() > 14) secretDisplay = secretDisplay.substring(0, 11) + "...";
-        NativeTerminal.printAt(4, 8, "Token:    " + CYAN + secretDisplay + RESET);
+        frameBuffer.printAt(4, 8, "Token:    " + CYAN + secretDisplay + RESET);
 
         String ips = state.targetAllowedIps.isEmpty() ? "Any Client Allowed" : state.targetAllowedIps;
         if (ips.length() > 14) ips = ips.substring(0, 11) + "...";
-        NativeTerminal.printAt(4, 9, "Allowed:  " + CYAN + ips + RESET);
-        NativeTerminal.printAt(4, 10, "Limits:   " + YELLOW + state.targetRateLimitRequests + " reqs / " + state.targetRateLimitDurationSeconds + "s" + RESET);
-        NativeTerminal.printAt(4, 11, "Timeout:  " + state.targetTimeoutMs + " ms");
-        NativeTerminal.printAt(4, 12, "Ping Int: " + state.globalPingInterval + "s");
+        frameBuffer.printAt(4, 9, "Allowed:  " + CYAN + ips + RESET);
+        frameBuffer.printAt(4, 10, "Limits:   " + YELLOW + state.targetRateLimitRequests + " reqs / " + state.targetRateLimitDurationSeconds + "s" + RESET);
+        frameBuffer.printAt(4, 11, "Timeout:  " + state.targetTimeoutMs + " ms");
+        frameBuffer.printAt(4, 12, "Ping Int: " + state.globalPingInterval + "s");
         String routeMode = currentCluster != null ? currentCluster.getRoutingMode().name() : "N/A";
-        NativeTerminal.printAt(4, 13, "RouteMode:" + YELLOW + routeMode + RESET);
+        frameBuffer.printAt(4, 13, "RouteMode:" + YELLOW + routeMode + RESET);
 
         int y = 6;
         int hostColWidth = (W - 31) - 6 - 12 - 4;
         if (hostColWidth < 22) hostColWidth = 22;
 
         String headerLine = String.format("%-" + hostColWidth + "s %-6s %-12s", "SERVICE HOST", "PORT", "STATUS");
-        NativeTerminal.printAt(33, y, WHITE_BOLD + headerLine + RESET);
+        frameBuffer.printAt(33, y, WHITE_BOLD + headerLine + RESET);
         y++;
 
         tui.adjustServicesViewport(7);
 
         if (state.nodes.isEmpty()) {
-            NativeTerminal.printAt(33, y, RED + "No services registered." + RESET);
+            frameBuffer.printAt(33, y, RED + "No services registered." + RESET);
             y++;
         } else {
             for (int i = 0; i < 7; i++) {
@@ -87,18 +95,18 @@ public class ClusterDetailViewRenderer {
                 String statusLabel = coloredStatus + (node.status().name().equals("ONLINE") ? " (" + node.latencyMs() + "ms)" : "");
 
                 String line = String.format("%s%-" + hostColWidth + "s %-6s %-12s", prefix, hostStr, portStr, statusLabel);
-                NativeTerminal.printAt(33, y, line);
+                frameBuffer.printAt(33, y, line);
                 y++;
             }
             if (state.servicesViewportStart > 0) {
-                NativeTerminal.printAt(W - 2, 7, WHITE_BOLD + "▲" + RESET);
+                frameBuffer.printAt(W - 2, 7, WHITE_BOLD + "▲" + RESET);
             }
             if (state.servicesViewportStart + 7 < state.nodes.size()) {
-                NativeTerminal.printAt(W - 2, 13, WHITE_BOLD + "▼" + RESET);
+                frameBuffer.printAt(W - 2, 13, WHITE_BOLD + "▼" + RESET);
             }
         }
         for (int r = y; r <= 13; r++) {
-            NativeTerminal.printAt(33, r, StrUtils.repeat(" ", hostColWidth + 20));
+            frameBuffer.printAt(33, r, StrUtils.repeat(" ", hostColWidth + 20));
         }
 
         // Inner console logs
@@ -108,7 +116,7 @@ public class ClusterDetailViewRenderer {
         y = logsStartY;
         List<DebugUtils.LogEntry> filteredLogs = DebugUtils.getClusterLogs(state.selectedClusterName);
         if (filteredLogs.isEmpty()) {
-            NativeTerminal.printAt(4, y, "No logs recorded for this cluster.");
+            frameBuffer.printAt(4, y, "No logs recorded for this cluster.");
             y++;
         } else {
             int startIdx = Math.max(0, filteredLogs.size() - logsLinesCount);
@@ -116,22 +124,19 @@ public class ClusterDetailViewRenderer {
             for (int i = startIdx; i < filteredLogs.size(); i++) {
                 DebugUtils.LogEntry entry = filteredLogs.get(i);
                 String logLine = entry.toString();
-                StringBuilder clearedLine = new StringBuilder(logLine);
-                while (clearedLine.length() < maxLineWidth) clearedLine.append(" ");
-                String outputLine = clearedLine.substring(0, maxLineWidth);
 
                 if (entry.getLevel() == DebugUtils.LogLevel.ERROR) {
-                    NativeTerminal.printAt(4, y, RED + outputLine + RESET);
+                    frameBuffer.printAt(4, y, RED + logLine + RESET);
                 } else if (entry.getLevel() == DebugUtils.LogLevel.INFO) {
-                    NativeTerminal.printAt(4, y, CYAN + outputLine + RESET);
+                    frameBuffer.printAt(4, y, CYAN + logLine + RESET);
                 } else {
-                    NativeTerminal.printAt(4, y, outputLine);
+                    frameBuffer.printAt(4, y, logLine);
                 }
                 y++;
             }
         }
         for (int r = y; r <= logsEndY; r++) {
-            NativeTerminal.printAt(4, r, StrUtils.repeat(" ", W - 7));
+            frameBuffer.printAt(4, r, StrUtils.repeat(" ", W - 7));
         }
 
         StringBuilder controlsStr = new StringBuilder();
@@ -145,7 +150,7 @@ public class ClusterDetailViewRenderer {
                 controlsStr.append("  [K] Token  [S] Secure");
             }
         }
-        NativeTerminal.printAt(2, H - 1, StrUtils.repeat(" ", W - 4));
-        NativeTerminal.printAt(2, H - 1, WHITE_BOLD + "Controls:" + RESET + controlsStr.toString());
+        frameBuffer.printAt(2, H - 1, StrUtils.repeat(" ", W - 4));
+        frameBuffer.printAt(2, H - 1, WHITE_BOLD + "Controls:" + RESET + controlsStr.toString());
     }
 }

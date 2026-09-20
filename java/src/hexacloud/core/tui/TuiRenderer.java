@@ -24,50 +24,81 @@ public class TuiRenderer {
     }
 
     public void draw() {
-        NativeTerminal.clearScreen();
+        int width = NativeTerminal.getTerminalWidth();
+        int height = NativeTerminal.getTerminalHeight();
+        TuiFrameBuffer frameBuffer = new TuiFrameBuffer(width, height);
+        frameBuffer.beginFrame();
+        draw(frameBuffer);
+        frameBuffer.flushToTerminal();
+    }
+
+    public void draw(TuiFrameBuffer frameBuffer) {
         TuiState state = tui.state();
 
         switch (state.currentView) {
             case VIEW_DASHBOARD:
-                drawHeader(tui.displayName());
-                dashboardRenderer.draw();
+                drawHeader(frameBuffer, tui.displayName());
+                dashboardRenderer.draw(frameBuffer);
                 break;
             case VIEW_CLUSTER_DETAIL:
-                drawHeader(state.selectedClusterName + " - Cluster Console");
-                clusterDetailRenderer.draw();
+                drawHeader(frameBuffer, state.selectedClusterName + " - Cluster Console");
+                clusterDetailRenderer.draw(frameBuffer);
                 break;
             case VIEW_FULL_LOGS:
-                drawHeader("Detailed System Logs");
-                fullLogsRenderer.draw();
+                drawHeader(frameBuffer, "Detailed System Logs");
+                fullLogsRenderer.draw(frameBuffer);
                 break;
             case VIEW_NODE_CONFIG:
-                drawHeader("Node Config Panel");
-                nodeConfigRenderer.draw();
+                drawHeader(frameBuffer, "Node Config Panel");
+                nodeConfigRenderer.draw(frameBuffer);
                 break;
         }
     }
 
     public void drawBox(int x1, int y1, int x2, int y2, String title, boolean highlighted) {
+        drawBox(null, x1, y1, x2, y2, title, highlighted);
+    }
+
+    public void drawBox(TuiFrameBuffer frameBuffer, int x1, int y1, int x2, int y2, String title, boolean highlighted) {
         String boxColor = highlighted ? WHITE_BOLD : CYAN;
         
         StringBuilder horizontal = new StringBuilder();
         for (int i = x1 + 1; i < x2; i++) horizontal.append("─");
         
-        NativeTerminal.printAt(x1, y1, boxColor + "┌" + horizontal + "┐" + RESET);
-        NativeTerminal.printAt(x1, y2, boxColor + "└" + horizontal + "┘" + RESET);
-        
-        for (int y = y1 + 1; y < y2; y++) {
-            NativeTerminal.printAt(x1, y, boxColor + "│" + RESET);
-            NativeTerminal.printAt(x2, y, boxColor + "│" + RESET);
-        }
-        
-        if (title != null && !title.isEmpty()) {
-            String titleStr = " " + title + " ";
-            NativeTerminal.printAt(x1 + 2, y1, boxColor + "┤" + WHITE_BOLD + titleStr + boxColor + "├" + RESET);
+        if (frameBuffer != null) {
+            frameBuffer.printAt(x1, y1, boxColor + "┌" + horizontal + "┐" + RESET);
+            frameBuffer.printAt(x1, y2, boxColor + "└" + horizontal + "┘" + RESET);
+            
+            for (int y = y1 + 1; y < y2; y++) {
+                frameBuffer.printAt(x1, y, boxColor + "│" + RESET);
+                frameBuffer.printAt(x2, y, boxColor + "│" + RESET);
+            }
+            
+            if (title != null && !title.isEmpty()) {
+                String titleStr = " " + title + " ";
+                frameBuffer.printAt(x1 + 2, y1, boxColor + "┤" + WHITE_BOLD + titleStr + boxColor + "├" + RESET);
+            }
+        } else {
+            NativeTerminal.printAt(x1, y1, boxColor + "┌" + horizontal + "┐" + RESET);
+            NativeTerminal.printAt(x1, y2, boxColor + "└" + horizontal + "┘" + RESET);
+            
+            for (int y = y1 + 1; y < y2; y++) {
+                NativeTerminal.printAt(x1, y, boxColor + "│" + RESET);
+                NativeTerminal.printAt(x2, y, boxColor + "│" + RESET);
+            }
+            
+            if (title != null && !title.isEmpty()) {
+                String titleStr = " " + title + " ";
+                NativeTerminal.printAt(x1 + 2, y1, boxColor + "┤" + WHITE_BOLD + titleStr + boxColor + "├" + RESET);
+            }
         }
     }
 
     public void drawHeader(String viewTitle) {
+        drawHeader(null, viewTitle);
+    }
+
+    public void drawHeader(TuiFrameBuffer frameBuffer, String viewTitle) {
         int width = NativeTerminal.getTerminalWidth() - 2;
         if (width < 40) width = 40; // Hard minimum
         String boxColor = CYAN;
@@ -80,7 +111,11 @@ public class TuiRenderer {
         borderTop.append("╗");
         borderBottom.append("╝");
         
-        NativeTerminal.printAt(1, 1, boxColor + borderTop.toString() + RESET);
+        if (frameBuffer != null) {
+            frameBuffer.printAt(1, 1, boxColor + borderTop.toString() + RESET);
+        } else {
+            NativeTerminal.printAt(1, 1, boxColor + borderTop.toString() + RESET);
+        }
         
         int padding = Math.max(0, (width - viewTitle.length()) / 2);
         StringBuilder sb = new StringBuilder();
@@ -90,7 +125,12 @@ public class TuiRenderer {
         for (int i = 0; i < width - padding - viewTitle.length(); i++) sb.append(" ");
         sb.append("║");
         
-        NativeTerminal.printAt(1, 2, boxColor + sb.toString() + RESET);
-        NativeTerminal.printAt(1, 3, boxColor + borderBottom.toString() + RESET);
+        if (frameBuffer != null) {
+            frameBuffer.printAt(1, 2, boxColor + sb.toString() + RESET);
+            frameBuffer.printAt(1, 3, boxColor + borderBottom.toString() + RESET);
+        } else {
+            NativeTerminal.printAt(1, 2, boxColor + sb.toString() + RESET);
+            NativeTerminal.printAt(1, 3, boxColor + borderBottom.toString() + RESET);
+        }
     }
 }

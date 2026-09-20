@@ -5,6 +5,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Queue;
 import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -19,6 +20,7 @@ public class DebugUtils {
     private static boolean debugEnabled = false;
     private static boolean tuiModeActive = false;
     private static final Queue<LogEntry> recentLogs = new ConcurrentLinkedQueue<>();
+    private static final AtomicInteger logCount = new AtomicInteger(0);
 
     public enum LogLevel {
         DEBUG,
@@ -62,8 +64,35 @@ public class DebugUtils {
         }
     }
 
+    private static final java.io.PrintStream directOut = new java.io.PrintStream(
+        new java.io.FileOutputStream(java.io.FileDescriptor.out),
+        true,
+        StandardCharsets.UTF_8
+    );
+    private static final java.io.PrintStream directErr = new java.io.PrintStream(
+        new java.io.FileOutputStream(java.io.FileDescriptor.err),
+        true,
+        StandardCharsets.UTF_8
+    );
+
     private static final java.io.PrintStream originalOut = System.out;
     private static final java.io.PrintStream originalErr = System.err;
+
+    /**
+     * Returns a PrintStream wrapping new FileOutputStream(FileDescriptor.out),
+     * completely bypassing Jansi's AnsiOutputStream and System.out redirection when redirectSystemOut(true) is active.
+     */
+    public static java.io.PrintStream getOriginalOut() {
+        return directOut;
+    }
+
+    /**
+     * Returns a PrintStream wrapping new FileOutputStream(FileDescriptor.err),
+     * completely bypassing System.err redirection when redirectSystemOut(true) is active.
+     */
+    public static java.io.PrintStream getOriginalErr() {
+        return directErr;
+    }
 
     public static void setDebugEnabled(boolean enabled) {
         debugEnabled = enabled;
@@ -105,11 +134,17 @@ public class DebugUtils {
             }
         }
 
+        @Override
+        public void flush() {
+            flushBuffer();
+        }
+
         private void flushBuffer() {
             byte[] bytes = buffer.toByteArray();
             buffer.reset();
             if (bytes.length > 0) {
-                String line = new String(bytes, StandardCharsets.UTF_8).trim();
+                String raw = new String(bytes, StandardCharsets.UTF_8);
+                String line = raw.replaceAll("\u001B\\[[?;0-9]*[a-zA-Z]", "").trim();
                 if (!line.isEmpty()) {
                     if (isError) {
                         captureLog(LogLevel.ERROR, null, null, line);
@@ -166,8 +201,10 @@ public class DebugUtils {
         public void log(LogLevel level, String clusterName, String serviceHost, String message, Throwable t) {
             LogEntry entry = new LogEntry(level, clusterName, serviceHost, message);
             recentLogs.offer(entry);
-            while (recentLogs.size() > 1000) {
+            logCount.incrementAndGet();
+            while (logCount.get() > 1000) {
                 recentLogs.poll();
+                logCount.decrementAndGet();
             }
             if (!tuiModeActive) {
                 if (level == LogLevel.ERROR) {

@@ -8,6 +8,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import hexacloud.core.cluster.Cluster;
 import hexacloud.core.cluster.ClusterRegistry;
 import hexacloud.core.event.TuiEvent;
+import hexacloud.core.model.ServerNode;
 import hexacloud.core.utils.common.Casts;
 import hexacloud.core.utils.common.DebugUtils;
 import hexacloud.core.utils.terminal.NativeTerminal;
@@ -25,6 +26,7 @@ public class TerminalUI implements hexacloud.core.ports.TerminalUiPort {
     private final TuiRenderer renderer;
     private final TuiKeyHandler keyHandler;
     private final TuiPrompts prompts;
+    private final hexacloud.core.tui.engine.TuiEventLoop eventLoop;
 
     // Feature Flags
     private boolean readOnly = false;
@@ -78,10 +80,15 @@ public class TerminalUI implements hexacloud.core.ports.TerminalUiPort {
         this.renderer = new TuiRenderer(this);
         this.keyHandler = new TuiKeyHandler(this);
         this.prompts = new TuiPrompts(this);
+        this.eventLoop = new hexacloud.core.tui.engine.TuiEventLoop(this);
     }
 
     public TuiState state() {
         return state;
+    }
+
+    public hexacloud.core.tui.engine.TuiEventLoop eventLoop() {
+        return eventLoop;
     }
 
     public TuiRenderer renderer() {
@@ -206,19 +213,35 @@ public class TerminalUI implements hexacloud.core.ports.TerminalUiPort {
             while (true) {
                 if (!toggleActive) {
                     try {
-                        int key = NativeTerminal.readKey();
-                        if (key == 10 || key == 13 || key == 'm' || key == 'M') { // Enter or 'm' key
+                        boolean enterPressed = false;
+                        java.io.File ttyFile = new java.io.File("/dev/tty");
+                        if (ttyFile.exists()) {
+                            try (java.io.FileInputStream fis = new java.io.FileInputStream(ttyFile)) {
+                                int b = fis.read();
+                                if (b == 10 || b == 13 || b == 'm' || b == 'M') {
+                                    enterPressed = true;
+                                }
+                            }
+                        } else {
+                            int key = NativeTerminal.readKey();
+                            if (key == 10 || key == 13 || key == 'm' || key == 'M') {
+                                enterPressed = true;
+                            }
+                        }
+
+                        if (enterPressed) {
                             toggleActive = true;
-                            
-                            // This blocks until the TUI exits (state.running = false)
-                            this.run();
-                            
-                            toggleActive = false;
-                            System.out.println("\n>>> DevOps TUI detached. Gateway is still running in background.");
-                            System.out.println(">>> Press ENTER to open the DevOps TUI Dashboard again.");
+                            try {
+                                // This blocks until the TUI exits (state.running = false)
+                                this.run();
+                            } finally {
+                                toggleActive = false;
+                                System.out.println("\n>>> DevOps TUI detached. Gateway is still running in background.");
+                                System.out.println(">>> Press ENTER to open the DevOps TUI Dashboard again.");
+                            }
                         }
                     } catch (Exception e) {
-                        // Ignore JNI read errors
+                        // Ignore TTY read errors
                     }
                 }
                 try {
@@ -248,6 +271,7 @@ public class TerminalUI implements hexacloud.core.ports.TerminalUiPort {
 
         hexacloud.core.event.EventListener<hexacloud.core.event.Event> interceptor = null;
         try {
+            eventLoop.start();
             interceptor = registerEventBusInterceptors();
             initializeStateAndSubscriptions();
             startInputReader();
@@ -260,6 +284,7 @@ public class TerminalUI implements hexacloud.core.ports.TerminalUiPort {
             NativeTerminal.resetTerminal();
             e.printStackTrace();
         } finally {
+            eventLoop.stop();
             cleanup(interceptor);
         }
     }
@@ -339,12 +364,13 @@ public class TerminalUI implements hexacloud.core.ports.TerminalUiPort {
     private void startInputReader() {
         hexacloud.core.utils.concurrent.ThreadManager.startVirtual("TuiInputReader", () -> {
             while (state.running) {
-                int key = NativeTerminal.readKey();
-                if (key != -1) {
-                    synchronized (state) {
-                        keyHandler.handleKeyPress(key);
+                try {
+                    int key = NativeTerminal.readKey();
+                    if (key != -1) {
+                        eventLoop.postEvent(new hexacloud.core.tui.engine.UIEvent.KeyPressEvent(key));
                     }
-                    triggerRedraw(true);
+                } catch (Throwable t) {
+                    // Prevent virtual thread death on unexpected exception
                 }
                 try {
                     Thread.sleep(50);
@@ -356,16 +382,24 @@ public class TerminalUI implements hexacloud.core.ports.TerminalUiPort {
     }
 
     private void executeRedrawLoop() {
+        long lastRedrawNano = 0;
+        final long minFrameIntervalMs = 33; // ~30 FPS ceiling
+
         while (state.running) {
             try {
                 // Block until an event releases the semaphore
                 redrawSemaphore.acquire();
-                
-                if (bypassDebounce) {
+
+                long nowNano = System.nanoTime();
+                long elapsedMs = (lastRedrawNano == 0) ? minFrameIntervalMs : (nowNano - lastRedrawNano) / 1_000_000L;
+
+                boolean isBypass = bypassDebounce;
+                if (isBypass) {
                     bypassDebounce = false;
-                } else {
-                    // Debounce/Coalesce: sleep 15ms to group rapid multiple events
-                    Thread.sleep(15);
+                }
+
+                if (!isBypass && elapsedMs < minFrameIntervalMs) {
+                    Thread.sleep(minFrameIntervalMs - elapsedMs);
                 }
                 redrawSemaphore.drainPermits();
 
@@ -379,6 +413,7 @@ public class TerminalUI implements hexacloud.core.ports.TerminalUiPort {
                     fetchGlobalConfig();
 
                     renderer.draw();
+                    lastRedrawNano = System.nanoTime();
                 }
             } catch (InterruptedException e) {
                 break;
@@ -454,6 +489,11 @@ public class TerminalUI implements hexacloud.core.ports.TerminalUiPort {
             if (activeGw != null) {
                 cfg.gatewayName = activeGw.getGatewayName();
                 cfg.port = activeGw.getPort();
+                if (activeGw instanceof hexacloud.infra.gateway.LocalGatewayAdapter) {
+                    cfg.adminPort = ((hexacloud.infra.gateway.LocalGatewayAdapter) activeGw).getAdminPort();
+                } else {
+                    cfg.adminPort = Integer.getInteger("gatebridge.admin.port", 9090);
+                }
                 cfg.telnetEnabled = activeGw.isTelnetEnabled();
                 cfg.httpEnabled = activeGw.isHttpEnabled();
                 cfg.wsEnabled = activeGw.isWsEnabled();
@@ -463,6 +503,7 @@ public class TerminalUI implements hexacloud.core.ports.TerminalUiPort {
             } else {
                 Integer configuredPort = gatewayPorts.get(clusterName);
                 cfg.port = (configuredPort != null) ? configuredPort : 3000;
+                cfg.adminPort = Integer.getInteger("gatebridge.admin.port", 9090);
                 cfg.gatewayName = "gw-" + cfg.port;
                 cfg.running = false;
             }
@@ -490,9 +531,16 @@ public class TerminalUI implements hexacloud.core.ports.TerminalUiPort {
         if (state.selectedClusterName.isEmpty()) return;
         Cluster c = ClusterRegistry.getInstance().getCluster(state.selectedClusterName);
         if (c != null) {
-            state.nodes = c.getCluster();
+            List<ServerNode> rawNodes = c.getCluster();
+            state.nodes = rawNodes;
+            List<hexacloud.core.tui.model.NodeView> views = new ArrayList<>(rawNodes.size());
+            for (ServerNode node : rawNodes) {
+                views.add(hexacloud.core.tui.model.NodeView.from(node));
+            }
+            state.nodeViews = views;
         } else {
             state.nodes.clear();
+            state.nodeViews.clear();
         }
     }
 

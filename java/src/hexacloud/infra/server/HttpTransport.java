@@ -91,7 +91,12 @@ public class HttpTransport implements ServerTransport {
     public void setPerformanceProfile(hexacloud.core.server.PerformanceProfile profile) {
         if (profile != null) {
             this.performanceProfile = profile;
+            this.reverseProxyService.setPerformanceProfile(profile);
         }
+    }
+
+    public hexacloud.core.server.PerformanceProfile getPerformanceProfile() {
+        return performanceProfile;
     }
 
     public void setSslContext(hexacloud.core.ports.SslContextPort sslContextPort) {
@@ -139,7 +144,7 @@ public class HttpTransport implements ServerTransport {
                         try {
                             String path = exchange.getRequestURI().getPath();
                             RouteResolution resolution = PathResolver.resolve(path, exchange.getRequestHeaders().getFirst("Host"), registry);
-                            boolean canUseFastPath = resolution.isLocal() 
+                            boolean canUseFastPath = isFastPathEnabled() && resolution.isLocal() 
                                     && registry.isRouteFastPath(resolution.localRouteName())
                                     && (activeFilters.isEmpty() || (activeFilters.size() == 1 && activeFilters.get(0) instanceof CorsFilter));
 
@@ -269,5 +274,13 @@ public class HttpTransport implements ServerTransport {
     @Override
     public boolean isRunning() {
         return running;
+    }
+
+    private boolean isFastPathEnabled() {
+        String fastPathProp = System.getProperty("gatebridge.fastpath.enabled");
+        if (fastPathProp != null && !fastPathProp.trim().isEmpty()) {
+            return Boolean.parseBoolean(fastPathProp.trim());
+        }
+        return performanceProfile != null && performanceProfile.isFastPathEnabled();
     }
 }

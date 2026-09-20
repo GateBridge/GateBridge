@@ -16,6 +16,9 @@ public class TuiState {
     public int selectedClusterIndex = 0;
     public int selectedNodeIndex = 0;
     public int selectedLogIndex = 0;
+    public int selectedTreeIndex = 0;
+
+    public final List<TuiTreeNode> rootTreeNodes = new ArrayList<>();
 
     public int servicesViewportStart = 0;
     public int logViewportStart = 0;
@@ -35,6 +38,7 @@ public class TuiState {
 
     public boolean running = true;
     public List<ServerNode> nodes = new ArrayList<>();
+    public List<hexacloud.core.tui.model.NodeView> nodeViews = new ArrayList<>();
 
     public int selectedGatewayIndex = 0;
     
@@ -42,6 +46,7 @@ public class TuiState {
         public String gatewayName = "";
         public String clusterName = "";
         public int port = 3000;
+        public int adminPort = 9090;
         public int pingInterval = 5;
         public boolean telnetEnabled = true;
         public boolean httpEnabled = true;

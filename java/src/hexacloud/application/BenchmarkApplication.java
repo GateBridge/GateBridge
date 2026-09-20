@@ -29,6 +29,7 @@ public class BenchmarkApplication {
             .port(4000)                   // Telnet: 4000, HTTP: 4001, WS: 4002
             .pingInterval(10)
             .enableHttp(true)
+            .httpEngine(hexacloud.core.server.HttpEngine.UNDERTOW)
             .enableTelnet(true)
             .enableWs(true)
             .requireToken(false, null)
@@ -55,6 +56,11 @@ public class BenchmarkApplication {
 
         @RouteMapping("/v1/ping")
         public void handlePing(String args, PrintWriter out) {
+            out.println("PONG");
+        }
+
+        @RouteMapping("PING")
+        public void handleTelnetPing(String args, PrintWriter out) {
             out.println("PONG");
         }
     }

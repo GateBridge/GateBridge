@@ -120,8 +120,8 @@ public class MinimalApplication {
                     long freeMem = runtime.freeMemory() / (1024 * 1024);
                     long totalMem = runtime.totalMemory() / (1024 * 1024);
                     long usedMem = totalMem - freeMem;
-                    System.out.printf("[MONITOR] Total OS Threads: %d (App/Framework: %d, JVM System Services: %d) | RAM Used: %d MB / %d MB\n", 
-                        threadCount, appThreads, jvmThreads, usedMem, totalMem);
+                    DebugUtils.info(String.format("[MONITOR] Total OS Threads: %d (App/Framework: %d, JVM System Services: %d) | RAM Used: %d MB / %d MB", 
+                        threadCount, appThreads, jvmThreads, usedMem, totalMem));
                 } catch (InterruptedException e) {
                     break;
                 }

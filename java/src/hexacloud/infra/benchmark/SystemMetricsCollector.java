@@ -131,7 +131,8 @@ public class SystemMetricsCollector {
     }
 
     private double getCpuLoad() {
-        if (osMxBean instanceof com.sun.management.OperatingSystemMXBean sunOsBean) {
+        if (osMxBean instanceof com.sun.management.OperatingSystemMXBean) {
+            com.sun.management.OperatingSystemMXBean sunOsBean = (com.sun.management.OperatingSystemMXBean) osMxBean;
             double processCpu = sunOsBean.getProcessCpuLoad();
             if (processCpu >= 0.0) {
                 return processCpu * 100.0;

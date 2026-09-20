@@ -69,47 +69,9 @@ public class TelnetBenchmarkClient {
     }
 
     public void runClientLoop(String host, int port, AtomicBoolean running) {
-        Socket socket = null;
-        OutputStream os = null;
-        BufferedReader reader = null;
-        byte[] cmdBytes = "PING\r\n".getBytes(StandardCharsets.UTF_8);
-
         while (running.get() && !Thread.currentThread().isInterrupted()) {
-            long startTime = System.currentTimeMillis();
-            boolean success = false;
-            try {
-                if (socket == null || socket.isClosed() || !socket.isConnected()) {
-                    socket = new Socket();
-                    socket.connect(new InetSocketAddress(host, port), timeoutMs);
-                    socket.setSoTimeout(timeoutMs);
-                    os = socket.getOutputStream();
-                    reader = new BufferedReader(new InputStreamReader(socket.getInputStream(), StandardCharsets.UTF_8));
-                }
-                os.write(cmdBytes);
-                os.flush();
-                String line = reader.readLine();
-                success = (line != null);
-                if (!success) {
-                    closeQuietly(socket);
-                    socket = null;
-                    os = null;
-                    reader = null;
-                }
-            } catch (Exception e) {
-                success = false;
-                closeQuietly(socket);
-                socket = null;
-                os = null;
-                reader = null;
-                try { Thread.sleep(50); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); }
-            } finally {
-                long latencyMs = System.currentTimeMillis() - startTime;
-                if (success || (running.get() && !Thread.currentThread().isInterrupted())) {
-                    metricsCollector.recordRequest(latencyMs, success);
-                }
-            }
+            executeRequest(host, port, "PING\r\n", running);
         }
-        closeQuietly(socket);
     }
 
     private static String parseHost(String target) {
