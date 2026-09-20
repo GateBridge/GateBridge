@@ -8,6 +8,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import hexacloud.core.cluster.Cluster;
 import hexacloud.core.cluster.ClusterRegistry;
 import hexacloud.core.event.TuiEvent;
+import hexacloud.core.model.ServerNode;
 import hexacloud.core.utils.common.Casts;
 import hexacloud.core.utils.common.DebugUtils;
 import hexacloud.core.utils.terminal.NativeTerminal;
@@ -25,6 +26,7 @@ public class TerminalUI implements hexacloud.core.ports.TerminalUiPort {
     private final TuiRenderer renderer;
     private final TuiKeyHandler keyHandler;
     private final TuiPrompts prompts;
+    private final hexacloud.core.tui.engine.TuiEventLoop eventLoop;
 
     // Feature Flags
     private boolean readOnly = false;
@@ -78,10 +80,15 @@ public class TerminalUI implements hexacloud.core.ports.TerminalUiPort {
         this.renderer = new TuiRenderer(this);
         this.keyHandler = new TuiKeyHandler(this);
         this.prompts = new TuiPrompts(this);
+        this.eventLoop = new hexacloud.core.tui.engine.TuiEventLoop(this);
     }
 
     public TuiState state() {
         return state;
+    }
+
+    public hexacloud.core.tui.engine.TuiEventLoop eventLoop() {
+        return eventLoop;
     }
 
     public TuiRenderer renderer() {
@@ -264,6 +271,7 @@ public class TerminalUI implements hexacloud.core.ports.TerminalUiPort {
 
         hexacloud.core.event.EventListener<hexacloud.core.event.Event> interceptor = null;
         try {
+            eventLoop.start();
             interceptor = registerEventBusInterceptors();
             initializeStateAndSubscriptions();
             startInputReader();
@@ -276,6 +284,7 @@ public class TerminalUI implements hexacloud.core.ports.TerminalUiPort {
             NativeTerminal.resetTerminal();
             e.printStackTrace();
         } finally {
+            eventLoop.stop();
             cleanup(interceptor);
         }
     }
@@ -358,10 +367,7 @@ public class TerminalUI implements hexacloud.core.ports.TerminalUiPort {
                 try {
                     int key = NativeTerminal.readKey();
                     if (key != -1) {
-                        synchronized (state) {
-                            keyHandler.handleKeyPress(key);
-                        }
-                        triggerRedraw(true);
+                        eventLoop.postEvent(new hexacloud.core.tui.engine.UIEvent.KeyPressEvent(key));
                     }
                 } catch (Throwable t) {
                     // Prevent virtual thread death on unexpected exception
@@ -525,9 +531,16 @@ public class TerminalUI implements hexacloud.core.ports.TerminalUiPort {
         if (state.selectedClusterName.isEmpty()) return;
         Cluster c = ClusterRegistry.getInstance().getCluster(state.selectedClusterName);
         if (c != null) {
-            state.nodes = c.getCluster();
+            List<ServerNode> rawNodes = c.getCluster();
+            state.nodes = rawNodes;
+            List<hexacloud.core.tui.model.NodeView> views = new ArrayList<>(rawNodes.size());
+            for (ServerNode node : rawNodes) {
+                views.add(hexacloud.core.tui.model.NodeView.from(node));
+            }
+            state.nodeViews = views;
         } else {
             state.nodes.clear();
+            state.nodeViews.clear();
         }
     }
 

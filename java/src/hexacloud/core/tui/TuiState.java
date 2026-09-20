@@ -38,6 +38,7 @@ public class TuiState {
 
     public boolean running = true;
     public List<ServerNode> nodes = new ArrayList<>();
+    public List<hexacloud.core.tui.model.NodeView> nodeViews = new ArrayList<>();
 
     public int selectedGatewayIndex = 0;
     
