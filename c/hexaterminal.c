@@ -13,6 +13,7 @@ static HANDLE hStdin = NULL;
 static HANDLE hStdout = NULL;
 
 JNIEXPORT void JNICALL Java_hexacloud_core_utils_terminal_NativeTerminal_initTerminal0(JNIEnv *env, jclass clazz) {
+    (void)env; (void)clazz;
     if (raw_mode_active) return;
     hStdin = GetStdHandle(STD_INPUT_HANDLE);
     hStdout = GetStdHandle(STD_OUTPUT_HANDLE);
@@ -39,6 +40,7 @@ JNIEXPORT void JNICALL Java_hexacloud_core_utils_terminal_NativeTerminal_initTer
 }
 
 JNIEXPORT void JNICALL Java_hexacloud_core_utils_terminal_NativeTerminal_resetTerminal0(JNIEnv *env, jclass clazz) {
+    (void)env; (void)clazz;
     if (!raw_mode_active) return;
     if (hStdin != NULL) SetConsoleMode(hStdin, orig_console_mode);
     if (hStdout != NULL) {
@@ -52,6 +54,7 @@ JNIEXPORT void JNICALL Java_hexacloud_core_utils_terminal_NativeTerminal_resetTe
 }
 
 JNIEXPORT void JNICALL Java_hexacloud_core_utils_terminal_NativeTerminal_clearScreen0(JNIEnv *env, jclass clazz) {
+    (void)env; (void)clazz;
     if (hStdout == NULL) hStdout = GetStdHandle(STD_OUTPUT_HANDLE);
     DWORD written = 0;
     CONSOLE_SCREEN_BUFFER_INFO csbi;
@@ -62,6 +65,7 @@ JNIEXPORT void JNICALL Java_hexacloud_core_utils_terminal_NativeTerminal_clearSc
 }
 
 JNIEXPORT void JNICALL Java_hexacloud_core_utils_terminal_NativeTerminal_printAt0(JNIEnv *env, jclass clazz, jint x, jint y, jstring text) {
+    (void)clazz;
     if (text == NULL) return;
     const char *str = (*env)->GetStringUTFChars(env, text, NULL);
     if (str == NULL) return;
@@ -74,9 +78,10 @@ JNIEXPORT void JNICALL Java_hexacloud_core_utils_terminal_NativeTerminal_printAt
 }
 
 JNIEXPORT jint JNICALL Java_hexacloud_core_utils_terminal_NativeTerminal_readKey0(JNIEnv *env, jclass clazz) {
+    (void)env; (void)clazz;
     if (_kbhit()) {
         int c = _getch();
-        if (c == 0 || c == 224) { // Special key code block
+        if (c == 0 || c == 224) {
             int code = _getch();
             switch (code) {
                 case 72: return 1000; // UP Arrow
@@ -92,6 +97,7 @@ JNIEXPORT jint JNICALL Java_hexacloud_core_utils_terminal_NativeTerminal_readKey
 }
 
 JNIEXPORT jboolean JNICALL Java_hexacloud_core_utils_terminal_NativeTerminal_saveConfig0(JNIEnv *env, jclass clazz, jstring filepath, jstring content) {
+    (void)clazz;
     if (filepath == NULL || content == NULL) return JNI_FALSE;
     const char *path = (*env)->GetStringUTFChars(env, filepath, NULL);
     const char *body = (*env)->GetStringUTFChars(env, content, NULL);
@@ -117,6 +123,7 @@ JNIEXPORT jboolean JNICALL Java_hexacloud_core_utils_terminal_NativeTerminal_sav
 }
 
 JNIEXPORT jint JNICALL Java_hexacloud_core_utils_terminal_NativeTerminal_getTerminalWidth0(JNIEnv *env, jclass clazz) {
+    (void)env; (void)clazz;
     if (hStdout == NULL) hStdout = GetStdHandle(STD_OUTPUT_HANDLE);
     CONSOLE_SCREEN_BUFFER_INFO csbi;
     if (GetConsoleScreenBufferInfo(hStdout, &csbi)) {
@@ -126,6 +133,7 @@ JNIEXPORT jint JNICALL Java_hexacloud_core_utils_terminal_NativeTerminal_getTerm
 }
 
 JNIEXPORT jint JNICALL Java_hexacloud_core_utils_terminal_NativeTerminal_getTerminalHeight0(JNIEnv *env, jclass clazz) {
+    (void)env; (void)clazz;
     if (hStdout == NULL) hStdout = GetStdHandle(STD_OUTPUT_HANDLE);
     CONSOLE_SCREEN_BUFFER_INFO csbi;
     if (GetConsoleScreenBufferInfo(hStdout, &csbi)) {
@@ -139,12 +147,30 @@ JNIEXPORT jint JNICALL Java_hexacloud_core_utils_terminal_NativeTerminal_getTerm
 #include <unistd.h>
 #include <termios.h>
 #include <fcntl.h>
+#include <signal.h>
+#include <poll.h>
 #include <sys/ioctl.h>
 
 static struct termios orig_termios;
 static int orig_in_flags = -1;
 static int raw_mode_active = 0;
 static int opened_tty_fd = -1;
+static int sigwinch_pipe[2] = {-1, -1};
+static int sigwinch_installed = 0;
+static struct sigaction orig_sa_winch;
+
+/*
+ * Signal handler strictly for SIGWINCH.
+ * MUST NOT handle SIGSEGV, SIGINT, or SIGTERM.
+ */
+static void sigwinch_handler(int sig) {
+    (void)sig;
+    if (sigwinch_pipe[1] != -1) {
+        char dummy = 1;
+        ssize_t ret = write(sigwinch_pipe[1], &dummy, 1);
+        (void)ret;
+    }
+}
 
 static int get_term_in_fd(void) {
     if (isatty(STDIN_FILENO)) {
@@ -175,6 +201,7 @@ static void write_tty(int fd, const char *str) {
 }
 
 JNIEXPORT void JNICALL Java_hexacloud_core_utils_terminal_NativeTerminal_initTerminal0(JNIEnv *env, jclass clazz) {
+    (void)env; (void)clazz;
     if (raw_mode_active) return;
 
     int in_fd = get_term_in_fd();
@@ -190,6 +217,21 @@ JNIEXPORT void JNICALL Java_hexacloud_core_utils_terminal_NativeTerminal_initTer
         fcntl(in_fd, F_SETFL, orig_in_flags | O_NONBLOCK);
     }
 
+    // Set up self-pipe for SIGWINCH notification ONLY
+    if (pipe(sigwinch_pipe) == 0) {
+        fcntl(sigwinch_pipe[0], F_SETFL, O_NONBLOCK);
+        fcntl(sigwinch_pipe[1], F_SETFL, O_NONBLOCK);
+
+        struct sigaction sa;
+        memset(&sa, 0, sizeof(sa));
+        sa.sa_handler = sigwinch_handler;
+        sigemptyset(&sa.sa_mask);
+        sa.sa_flags = SA_RESTART;
+        if (sigaction(SIGWINCH, &sa, &orig_sa_winch) == 0) {
+            sigwinch_installed = 1;
+        }
+    }
+
     raw_mode_active = 1;
 
     int out_fd = get_term_out_fd();
@@ -197,6 +239,7 @@ JNIEXPORT void JNICALL Java_hexacloud_core_utils_terminal_NativeTerminal_initTer
 }
 
 JNIEXPORT void JNICALL Java_hexacloud_core_utils_terminal_NativeTerminal_resetTerminal0(JNIEnv *env, jclass clazz) {
+    (void)env; (void)clazz;
     if (!raw_mode_active) return;
 
     int in_fd = get_term_in_fd();
@@ -205,6 +248,21 @@ JNIEXPORT void JNICALL Java_hexacloud_core_utils_terminal_NativeTerminal_resetTe
         fcntl(in_fd, F_SETFL, orig_in_flags);
         orig_in_flags = -1;
     }
+
+    if (sigwinch_installed) {
+        sigaction(SIGWINCH, &orig_sa_winch, NULL);
+        sigwinch_installed = 0;
+    }
+
+    if (sigwinch_pipe[0] != -1) {
+        close(sigwinch_pipe[0]);
+        sigwinch_pipe[0] = -1;
+    }
+    if (sigwinch_pipe[1] != -1) {
+        close(sigwinch_pipe[1]);
+        sigwinch_pipe[1] = -1;
+    }
+
     raw_mode_active = 0;
 
     int out_fd = get_term_out_fd();
@@ -217,11 +275,13 @@ JNIEXPORT void JNICALL Java_hexacloud_core_utils_terminal_NativeTerminal_resetTe
 }
 
 JNIEXPORT void JNICALL Java_hexacloud_core_utils_terminal_NativeTerminal_clearScreen0(JNIEnv *env, jclass clazz) {
+    (void)env; (void)clazz;
     int out_fd = get_term_out_fd();
     write_tty(out_fd, "\033[2J\033[H\033[3J");
 }
 
 JNIEXPORT void JNICALL Java_hexacloud_core_utils_terminal_NativeTerminal_printAt0(JNIEnv *env, jclass clazz, jint x, jint y, jstring text) {
+    (void)clazz;
     if (text == NULL) return;
     const char *str = (*env)->GetStringUTFChars(env, text, NULL);
     if (str == NULL) return;
@@ -246,63 +306,43 @@ JNIEXPORT void JNICALL Java_hexacloud_core_utils_terminal_NativeTerminal_printAt
 }
 
 JNIEXPORT jint JNICALL Java_hexacloud_core_utils_terminal_NativeTerminal_readKey0(JNIEnv *env, jclass clazz) {
+    (void)env; (void)clazz;
     int in_fd = get_term_in_fd();
-    char c;
-    int n = read(in_fd, &c, 1);
 
-    if (n > 0) {
-        if (c == 27) { // Escape sequence parser
-            char seq[2];
-            int retries = 0;
-            int n1 = 0;
-            while (retries < 20) {
-                n1 = read(in_fd, &seq[0], 1);
-                if (n1 > 0) break;
-                usleep(1000); // Wait 1ms
-                retries++;
-            }
+    struct pollfd fds[2];
+    int nfds = 1;
+    fds[0].fd = in_fd;
+    fds[0].events = POLLIN;
+    fds[0].revents = 0;
 
-            if (n1 > 0) {
-                int n2 = 0;
-                retries = 0;
-                while (retries < 10) {
-                    n2 = read(in_fd, &seq[1], 1);
-                    if (n2 > 0) break;
-                    usleep(1000);
-                    retries++;
-                }
+    if (sigwinch_pipe[0] != -1) {
+        fds[1].fd = sigwinch_pipe[0];
+        fds[1].events = POLLIN;
+        fds[1].revents = 0;
+        nfds = 2;
+    }
 
-                if (seq[0] == '[' || seq[0] == 'O') {
-                    if (n2 > 0) {
-                        switch (seq[1]) {
-                            case 'A': return 1000; // UP Arrow
-                            case 'B': return 1001; // DOWN Arrow
-                            case 'C': return 1002; // RIGHT Arrow
-                            case 'D': return 1003; // LEFT Arrow
-                        }
-                    }
-                }
-
-                // Unrecognized escape sequence (e.g. Kitty FocusIn \033[I or device query).
-                // Drain any extra trailing bytes of this sequence safely.
-                char temp;
-                int drainCount = 0;
-                while (read(in_fd, &temp, 1) > 0 && drainCount < 32) {
-                    drainCount++;
-                    if (temp >= 0x40 && temp <= 0x7E) break; // End of ANSI sequence
-                }
-                return -1; // Discard sequence
-            }
-            // Standalone ESC key pressed (no trailing sequence bytes arrived)
-            return 27;
+    int ret = poll(fds, nfds, 0); // 0ms non-blocking check
+    if (ret > 0) {
+        if (nfds > 1 && (fds[1].revents & POLLIN)) {
+            char buf[16];
+            while (read(sigwinch_pipe[0], buf, sizeof(buf)) > 0) {}
+            return 2000; // Window resize signal (KEY_RESIZE)
         }
-        return (jint)(unsigned char)c;
+        if (fds[0].revents & POLLIN) {
+            unsigned char c;
+            int n = read(in_fd, &c, 1);
+            if (n > 0) {
+                return (jint)c; // Return raw byte
+            }
+        }
     }
 
     return -1;
 }
 
 JNIEXPORT jboolean JNICALL Java_hexacloud_core_utils_terminal_NativeTerminal_saveConfig0(JNIEnv *env, jclass clazz, jstring filepath, jstring content) {
+    (void)clazz;
     if (filepath == NULL || content == NULL) return JNI_FALSE;
     const char *path = (*env)->GetStringUTFChars(env, filepath, NULL);
     const char *body = (*env)->GetStringUTFChars(env, content, NULL);
@@ -328,6 +368,7 @@ JNIEXPORT jboolean JNICALL Java_hexacloud_core_utils_terminal_NativeTerminal_sav
 }
 
 JNIEXPORT jint JNICALL Java_hexacloud_core_utils_terminal_NativeTerminal_getTerminalWidth0(JNIEnv *env, jclass clazz) {
+    (void)env; (void)clazz;
     struct winsize w;
     int out_fd = get_term_out_fd();
     if (ioctl(out_fd, TIOCGWINSZ, &w) == 0 && w.ws_col > 0) {
@@ -341,6 +382,7 @@ JNIEXPORT jint JNICALL Java_hexacloud_core_utils_terminal_NativeTerminal_getTerm
 }
 
 JNIEXPORT jint JNICALL Java_hexacloud_core_utils_terminal_NativeTerminal_getTerminalHeight0(JNIEnv *env, jclass clazz) {
+    (void)env; (void)clazz;
     struct winsize w;
     int out_fd = get_term_out_fd();
     if (ioctl(out_fd, TIOCGWINSZ, &w) == 0 && w.ws_row > 0) {

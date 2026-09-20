@@ -2,11 +2,19 @@ package hexacloud.core.utils.terminal;
 
 import java.io.File;
 import java.io.FileWriter;
-import hexacloud.core.utils.concurrent.ThreadManager;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 public class NativeTerminal {
     private static boolean loaded = false;
     private static boolean sttyRawModeActive = false;
+
+    private static final AnsiEscapeParser ANSI_PARSER = new AnsiEscapeParser();
+    private static final ExecutorService PLATFORM_EXECUTOR = Executors.newSingleThreadExecutor(r -> {
+        Thread t = new Thread(r, "NativeTerminal-PlatformThread");
+        t.setDaemon(true);
+        return t;
+    });
 
     static {
         // Try custom path from System Property or Env Var first
@@ -26,47 +34,54 @@ public class NativeTerminal {
             }
         }
 
-        // Try loading from packaged JAR resource next if not loaded
+        // Try loading from packaged JAR resources next if not loaded
         if (!loaded) {
             try {
-            String osName = System.getProperty("os.name").toLowerCase();
-            String libName;
-            if (osName.contains("win")) {
-                libName = "hexaterminal.dll";
-            } else if (osName.contains("mac")) {
-                libName = "libhexaterminal.dylib";
-            } else {
-                libName = "libhexaterminal.so";
-            }
-            
-            try (java.io.InputStream in = NativeTerminal.class.getResourceAsStream("/native/" + libName)) {
-                if (in != null) {
-                    File tempFile = File.createTempFile("libhexaterminal", libName.substring(libName.lastIndexOf('.')));
-                    tempFile.deleteOnExit();
-                    try (java.io.FileOutputStream out = new java.io.FileOutputStream(tempFile)) {
-                        byte[] buffer = new byte[8192];
-                        int bytesRead;
-                        while ((bytesRead = in.read(buffer)) != -1) {
-                            out.write(buffer, 0, bytesRead);
-                        }
-                    }
-                    System.load(tempFile.getAbsolutePath());
-                    loaded = true;
+                String osName = System.getProperty("os.name").toLowerCase();
+                String libName;
+                if (osName.contains("win")) {
+                    libName = "hexaterminal.dll";
+                } else if (osName.contains("mac")) {
+                    libName = "libhexaterminal.dylib";
+                } else {
+                    libName = "libhexaterminal.so";
                 }
-            }
-        } catch (Throwable t) {
-            // Ignore and fallback
-        }
-    }
 
-    if (!loaded) {
+                String[] resourcePaths = {
+                    "/native/linux-x86_64/" + libName,
+                    "/native/" + libName
+                };
+
+                for (String resPath : resourcePaths) {
+                    try (java.io.InputStream in = NativeTerminal.class.getResourceAsStream(resPath)) {
+                        if (in != null) {
+                            File tempFile = File.createTempFile("libhexaterminal", libName.substring(libName.lastIndexOf('.')));
+                            tempFile.deleteOnExit();
+                            try (java.io.FileOutputStream out = new java.io.FileOutputStream(tempFile)) {
+                                byte[] buffer = new byte[8192];
+                                int bytesRead;
+                                while ((bytesRead = in.read(buffer)) != -1) {
+                                    out.write(buffer, 0, bytesRead);
+                                }
+                            }
+                            System.load(tempFile.getAbsolutePath());
+                            loaded = true;
+                            break;
+                        }
+                    } catch (Throwable ignored) {}
+                }
+            } catch (Throwable ignored) {}
+        }
+
+        if (!loaded) {
             String[] possiblePaths = {
                 "libhexaterminal.so",
                 "java/libhexaterminal.so",
+                "java/resources/native/libhexaterminal.so",
+                "src/main/resources/native/linux-x86_64/libhexaterminal.so",
                 "/tmp/libhexaterminal.so",
                 "libhexaterminal.dylib",
                 "java/libhexaterminal.dylib",
-                "/tmp/libhexaterminal.dylib",
                 "hexaterminal.dll",
                 "java/hexaterminal.dll"
             };
@@ -103,6 +118,27 @@ public class NativeTerminal {
     private static native int getTerminalWidth0();
     private static native int getTerminalHeight0();
 
+    /**
+     * Checks if the application is running under Maven Surefire or automated test environments.
+     */
+    public static boolean isTestEnvironment() {
+        return System.getProperty("surefire.real.class.path") != null
+            || System.getProperty("surefire.test.class.path") != null
+            || System.getProperty("org.codehaus.surefire") != null
+            || System.getProperty("test.env") != null
+            || "true".equalsIgnoreCase(System.getProperty("gatebridge.test.mode"));
+    }
+
+    /**
+     * Checks if standard input is attached to an interactive terminal console.
+     */
+    public static boolean isInteractiveTty() {
+        if (isTestEnvironment()) {
+            return false;
+        }
+        return System.console() != null;
+    }
+
     public static boolean loadJni(String path) {
         if (loaded) return true;
         try {
@@ -119,6 +155,9 @@ public class NativeTerminal {
     }
 
     public static synchronized void initTerminal() {
+        if (isTestEnvironment()) {
+            return; // Skip setting raw mode during unit test execution
+        }
         if (loaded) {
             try {
                 initTerminal0();
@@ -159,6 +198,9 @@ public class NativeTerminal {
     }
 
     public static synchronized void resetTerminal() {
+        if (isTestEnvironment()) {
+            return;
+        }
         if (loaded) {
             try {
                 resetTerminal0();
@@ -199,7 +241,6 @@ public class NativeTerminal {
         hexacloud.core.utils.common.DebugUtils.getOriginalOut().flush();
     }
 
-
     public static synchronized void printAt(int x, int y, String text) {
         if (loaded) {
             try {
@@ -214,66 +255,50 @@ public class NativeTerminal {
         hexacloud.core.utils.common.DebugUtils.getOriginalOut().flush();
     }
 
-    public static synchronized int readKey() {
+    /**
+     * Reads the next key code. Executes blocking JNI poll on a dedicated Platform Thread if called
+     * from a Virtual Thread (Loom) to prevent carrier thread pinning.
+     */
+    public static int readKey() {
+        if (Thread.currentThread().isVirtual()) {
+            try {
+                return PLATFORM_EXECUTOR.submit(NativeTerminal::readKeyInternal).get();
+            } catch (Exception e) {
+                return -1;
+            }
+        } else {
+            return readKeyInternal();
+        }
+    }
+
+    private static synchronized int readKeyInternal() {
         if (loaded) {
             try {
-                return readKey0();
+                int val = readKey0();
+                if (val == 2000) { // Window resize signal
+                    return 2000;
+                }
+                if (val >= 0) {
+                    return ANSI_PARSER.parseNextByte(val);
+                } else {
+                    return ANSI_PARSER.flushPendingEscape();
+                }
             } catch (UnsatisfiedLinkError e) {
                 // Fallback
             }
         }
+
+        // Fallback Java reading
         try {
-            if (sttyRawModeActive) {
-                if (System.in.available() > 0) {
-                    int c = System.in.read();
-                    if (c == 27) { // Escape sequence parser for fallback mode
-                        // Wait up to 50ms for the next bytes of the escape sequence to arrive
-                        long start = System.currentTimeMillis();
-                        while (System.in.available() == 0 && (System.currentTimeMillis() - start) < 50) {
-                            ThreadManager.spinWait();
-                        }
-                        if (System.in.available() > 0) {
-                            int c2 = System.in.read();
-                            if (c2 == '[' || c2 == 'O') {
-                                start = System.currentTimeMillis();
-                                while (System.in.available() == 0 && (System.currentTimeMillis() - start) < 50) {
-                                    ThreadManager.spinWait();
-                                }
-                                if (System.in.available() > 0) {
-                                    int c3 = System.in.read();
-                                    if (c3 == 'A') return 1000; // UP Arrow
-                                    if (c3 == 'B') return 1001; // DOWN Arrow
-                                    if (c3 == 'C') return 1002; // RIGHT Arrow
-                                    if (c3 == 'D') return 1003; // LEFT Arrow
-                                }
-                            }
-                        }
-                    }
-                    return c;
+            if (System.in.available() > 0) {
+                int c = System.in.read();
+                if (c >= 0) {
+                    return ANSI_PARSER.parseNextByte(c);
                 }
             } else {
-                // In canonical/cooked mode (waiting for TUI toggle), perform a blocking read
-                int c = System.in.read();
-                if (c == 27) {
-                    // Escape sequence check (if any)
-                    if (System.in.available() > 0) {
-                        int c2 = System.in.read();
-                        if (c2 == '[' || c2 == 'O') {
-                            if (System.in.available() > 0) {
-                                int c3 = System.in.read();
-                                if (c3 == 'A') return 1000;
-                                if (c3 == 'B') return 1001;
-                                if (c3 == 'C') return 1002;
-                                if (c3 == 'D') return 1003;
-                            }
-                        }
-                    }
-                }
-                return c;
+                return ANSI_PARSER.flushPendingEscape();
             }
-        } catch (Exception e) {
-            // Ignored
-        }
+        } catch (Exception ignored) {}
         return -1;
     }
 

@@ -33,5 +33,19 @@ public final class TuiConstants {
     public static final long UI_INPUT_POLL_DELAY_MS = 50L;
     public static final long UI_KEY_POLL_DELAY_MS = 15L;
 
+    // Terminal Key Codes
+    public static final int KEY_ENTER = 10;
+    public static final int KEY_ESC = 27;
+    public static final int KEY_BACKSPACE = 127;
+    public static final int KEY_UP = 1000;
+    public static final int KEY_DOWN = 1001;
+    public static final int KEY_RIGHT = 1002;
+    public static final int KEY_LEFT = 1003;
+    public static final int KEY_PAGE_UP = 1004;
+    public static final int KEY_PAGE_DOWN = 1005;
+    public static final int KEY_HOME = 1006;
+    public static final int KEY_END = 1007;
+    public static final int KEY_RESIZE = 2000;
+
     private TuiConstants() {}
 }
