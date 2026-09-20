@@ -17,12 +17,14 @@ public class TuiFrameBuffer {
     public void beginFrame() {
         buffer.setLength(0);
         buffer.append("\u001B[?25l"); // Hide cursor
-        buffer.append("\u001B[H\u001B[2J"); // Move cursor home (1,1) and clear screen
+        buffer.append("\u001B[H"); // Move cursor home (1,1)
     }
 
     public void printAt(int x, int y, String text) {
         if (text == null || text.isEmpty()) return;
-        buffer.append("\u001B[").append(y).append(";").append(x).append("H").append(text);
+        int safeX = Math.max(1, Math.min(x, width));
+        int safeY = Math.max(1, Math.min(y, height));
+        buffer.append("\u001B[").append(safeY).append(";").append(safeX).append("H").append(text);
     }
 
     public String buildFrameString() {

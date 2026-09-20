@@ -34,10 +34,8 @@ public class FullLogsViewRenderer {
 
     public void draw(TuiFrameBuffer frameBuffer) {
         TuiState state = tui.state();
-        int W = NativeTerminal.getTerminalWidth();
-        int H = NativeTerminal.getTerminalHeight();
-        if (W < 110) W = 110;
-        if (H < 24) H = 24;
+        int W = Math.max(80, frameBuffer.getWidth());
+        int H = Math.max(24, frameBuffer.getHeight());
 
         mainRenderer.drawBox(frameBuffer, 2, 5, W, H - 2, "DETAILED SYSTEM LOGS", true);
 
@@ -59,9 +57,8 @@ public class FullLogsViewRenderer {
                 DebugUtils.LogEntry entry = logs.get(index);
                 String logLine = entry.toString();
                 String prefix = index == state.selectedLogIndex ? "➔ " : "  ";
-                StringBuilder clearedLine = new StringBuilder(prefix + logLine);
-                while (clearedLine.length() < maxLineWidth) clearedLine.append(" ");
-                String outputLine = clearedLine.substring(0, maxLineWidth);
+                String lineText = prefix + logLine;
+                String outputLine = lineText.length() > maxLineWidth ? lineText.substring(0, maxLineWidth) : lineText + StrUtils.repeat(" ", maxLineWidth - lineText.length());
 
                 if (entry.getLevel() == DebugUtils.LogLevel.ERROR) {
                     frameBuffer.printAt(4, y, RED + outputLine + RESET);

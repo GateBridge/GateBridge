@@ -148,8 +148,8 @@ public class NativeTerminal {
                     p.waitFor();
                 } catch (Exception ignored) {}
 
-                // Clear screen and hide cursor using ANSI escape code
-                hexacloud.core.utils.common.DebugUtils.getOriginalOut().print("\033[2J\033[H\033[3J\033[?25l");
+                // Enter alternate screen buffer, clear screen, and hide cursor
+                hexacloud.core.utils.common.DebugUtils.getOriginalOut().print("\033[?1049h\033[2J\033[H\033[?25l");
                 hexacloud.core.utils.common.DebugUtils.getOriginalOut().flush();
             }
         } catch (Exception e) {
@@ -170,8 +170,8 @@ public class NativeTerminal {
             try {
                 new ProcessBuilder("sh", "-c", "stty sane < /dev/tty").start().waitFor();
                 sttyRawModeActive = false;
-                // Show cursor
-                hexacloud.core.utils.common.DebugUtils.getOriginalOut().print("\033[?25h\033[0m\n");
+                // Exit alternate screen buffer, show cursor, and reset attributes
+                hexacloud.core.utils.common.DebugUtils.getOriginalOut().print("\033[?1049l\033[?25h\033[0m\n");
                 hexacloud.core.utils.common.DebugUtils.getOriginalOut().flush();
             } catch (Exception e) {
                 // Ignore
@@ -233,7 +233,7 @@ public class NativeTerminal {
                         }
                         if (System.in.available() > 0) {
                             int c2 = System.in.read();
-                            if (c2 == '[') {
+                            if (c2 == '[' || c2 == 'O') {
                                 start = System.currentTimeMillis();
                                 while (System.in.available() == 0 && (System.currentTimeMillis() - start) < 50) {
                                     ThreadManager.spinWait();
@@ -257,7 +257,7 @@ public class NativeTerminal {
                     // Escape sequence check (if any)
                     if (System.in.available() > 0) {
                         int c2 = System.in.read();
-                        if (c2 == '[') {
+                        if (c2 == '[' || c2 == 'O') {
                             if (System.in.available() > 0) {
                                 int c3 = System.in.read();
                                 if (c3 == 'A') return 1000;
@@ -292,7 +292,7 @@ public class NativeTerminal {
         }
     }
 
-    private static int cachedWidth = 110;
+    private static int cachedWidth = 80;
     private static int cachedHeight = 24;
     private static long lastSizeCheck = 0;
 

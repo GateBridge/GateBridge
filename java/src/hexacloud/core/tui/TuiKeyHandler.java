@@ -58,10 +58,21 @@ public class TuiKeyHandler {
                 }
                 syncSelectedNodeState(state, visibleNodes);
             }
-        } else if (key == 32 || key == 10 || key == 13) { // Space or Enter: Toggle Expansion
+        } else if (key == 32) { // Space: Toggle Expansion
             if (!visibleNodes.isEmpty() && state.selectedTreeIndex >= 0 && state.selectedTreeIndex < visibleNodes.size()) {
                 TuiTreeNode node = visibleNodes.get(state.selectedTreeIndex);
                 node.setExpanded(!node.isExpanded());
+            }
+        } else if (key == 10 || key == 13) { // Enter: View Navigation / Toggle
+            if (!visibleNodes.isEmpty() && state.selectedTreeIndex >= 0 && state.selectedTreeIndex < visibleNodes.size()) {
+                TuiTreeNode node = visibleNodes.get(state.selectedTreeIndex);
+                if (node.getType() == TuiTreeNode.NodeType.CLUSTER) {
+                    state.currentView = VIEW_CLUSTER_DETAIL;
+                } else if (node.getType() == TuiTreeNode.NodeType.SERVER_NODE) {
+                    state.currentView = VIEW_NODE_CONFIG;
+                } else {
+                    node.setExpanded(!node.isExpanded());
+                }
             }
         } else if ((key == 'g' || key == 'G') && tui.gatewayManagementEnabled() && !tui.readOnly()) {
             tui.prompts().manageGatewayPrompt();

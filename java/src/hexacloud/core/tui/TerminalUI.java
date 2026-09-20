@@ -224,13 +224,14 @@ public class TerminalUI implements hexacloud.core.ports.TerminalUiPort {
 
                         if (enterPressed) {
                             toggleActive = true;
-                            
-                            // This blocks until the TUI exits (state.running = false)
-                            this.run();
-                            
-                            toggleActive = false;
-                            System.out.println("\n>>> DevOps TUI detached. Gateway is still running in background.");
-                            System.out.println(">>> Press ENTER to open the DevOps TUI Dashboard again.");
+                            try {
+                                // This blocks until the TUI exits (state.running = false)
+                                this.run();
+                            } finally {
+                                toggleActive = false;
+                                System.out.println("\n>>> DevOps TUI detached. Gateway is still running in background.");
+                                System.out.println(">>> Press ENTER to open the DevOps TUI Dashboard again.");
+                            }
                         }
                     } catch (Exception e) {
                         // Ignore TTY read errors

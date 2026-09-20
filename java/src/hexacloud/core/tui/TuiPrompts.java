@@ -23,12 +23,16 @@ public class TuiPrompts {
     }
 
     private void askPressEnterToContinue() {
-        System.out.print("\n" + WHITE_BOLD + "Press Enter to continue..." + RESET);
+        java.io.PrintStream out = hexacloud.core.utils.common.DebugUtils.getOriginalOut();
+        out.print("\n" + WHITE_BOLD + "Press Enter to continue..." + RESET);
+        out.flush();
         TerminalScanner.readLine();
     }
 
     private String readInput(String prompt) throws CancellationException {
-        System.out.print(prompt);
+        java.io.PrintStream out = hexacloud.core.utils.common.DebugUtils.getOriginalOut();
+        out.print(prompt);
+        out.flush();
         String input = TerminalScanner.readLine();
         if (input != null && input.equalsIgnoreCase("/cancel")) {
             throw new CancellationException();

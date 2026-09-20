@@ -64,15 +64,26 @@ public class DebugUtils {
         }
     }
 
+    private static final java.io.PrintStream directOut = new java.io.PrintStream(
+        new java.io.FileOutputStream(java.io.FileDescriptor.out),
+        true,
+        StandardCharsets.UTF_8
+    );
+    private static final java.io.PrintStream directErr = new java.io.PrintStream(
+        new java.io.FileOutputStream(java.io.FileDescriptor.err),
+        true,
+        StandardCharsets.UTF_8
+    );
+
     private static final java.io.PrintStream originalOut = System.out;
     private static final java.io.PrintStream originalErr = System.err;
 
     public static java.io.PrintStream getOriginalOut() {
-        return originalOut;
+        return directOut;
     }
 
     public static java.io.PrintStream getOriginalErr() {
-        return originalErr;
+        return directErr;
     }
 
     public static void setDebugEnabled(boolean enabled) {
@@ -115,11 +126,17 @@ public class DebugUtils {
             }
         }
 
+        @Override
+        public void flush() {
+            flushBuffer();
+        }
+
         private void flushBuffer() {
             byte[] bytes = buffer.toByteArray();
             buffer.reset();
             if (bytes.length > 0) {
-                String line = new String(bytes, StandardCharsets.UTF_8).trim();
+                String raw = new String(bytes, StandardCharsets.UTF_8);
+                String line = raw.replaceAll("\u001B\\[[?;0-9]*[a-zA-Z]", "").trim();
                 if (!line.isEmpty()) {
                     if (isError) {
                         captureLog(LogLevel.ERROR, null, null, line);

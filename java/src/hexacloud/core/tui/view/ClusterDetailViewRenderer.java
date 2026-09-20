@@ -37,10 +37,8 @@ public class ClusterDetailViewRenderer {
 
     public void draw(TuiFrameBuffer frameBuffer) {
         TuiState state = tui.state();
-        int W = NativeTerminal.getTerminalWidth();
-        int H = NativeTerminal.getTerminalHeight();
-        if (W < 110) W = 110;
-        if (H < 24) H = 24;
+        int W = Math.max(80, frameBuffer.getWidth());
+        int H = Math.max(24, frameBuffer.getHeight());
 
         mainRenderer.drawBox(frameBuffer, 2, 5, 29, 14, "POLICIES & LIMITS", false);
         mainRenderer.drawBox(frameBuffer, 31, 5, W, 14, "SERVICES / TELEMETRY (" + state.nodes.size() + ")", true);

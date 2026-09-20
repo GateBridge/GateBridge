@@ -66,7 +66,7 @@ public class DashboardViewRenderer {
 
         if (!state.gateways.isEmpty()) {
             for (TuiState.GatewayConfig gw : state.gateways) {
-                String gwId = "gw:" + gw.gatewayName;
+                String gwId = "gw:" + gw.gatewayName + ":" + (gw.clusterName != null ? gw.clusterName : "");
                 String dataBadge = "[Data: :" + gw.port + " " + (gw.running ? "ONLINE" : "OFFLINE") + "]";
                 String mgmtBadge = "[Mgmt: :" + gw.adminPort + " " + (gw.running ? "ONLINE" : "OFFLINE") + "]";
                 String gwLabel = "GATEWAY: " + gw.gatewayName + "  " + dataBadge + " " + mgmtBadge;
@@ -156,10 +156,8 @@ public class DashboardViewRenderer {
 
     public void draw(TuiFrameBuffer frameBuffer) {
         TuiState state = tui.state();
-        int W = NativeTerminal.getTerminalWidth();
-        int H = NativeTerminal.getTerminalHeight();
-        if (W < 110) W = 110; // Hard minimum
-        if (H < 24) H = 24;   // Hard minimum
+        int W = Math.max(80, frameBuffer.getWidth());
+        int H = Math.max(24, frameBuffer.getHeight());
 
         updateTreeNodes(state);
         List<TuiTreeNode> visibleNodes = flattenVisibleNodes(state.rootTreeNodes);
@@ -190,9 +188,12 @@ public class DashboardViewRenderer {
             }
         }
 
+        // Responsive layout box calculations
+        int leftBoxWidth = Math.max(38, W - 31);
+
         // 1. Draw top panel boxes: Hierarchical Tree and Live Metrics
-        mainRenderer.drawBox(frameBuffer, 2, 5, W - 31, 14, "GATEWAYS & CLUSTERS HIERARCHY", true);
-        mainRenderer.drawBox(frameBuffer, W - 29, 5, W, 14, "GATEWAYS & SYSTEM", false);
+        mainRenderer.drawBox(frameBuffer, 2, 5, leftBoxWidth, 14, "GATEWAYS & CLUSTERS HIERARCHY", true);
+        mainRenderer.drawBox(frameBuffer, leftBoxWidth + 2, 5, W, 14, "GATEWAYS & SYSTEM", false);
 
         // 2. Draw bottom panel boxes: Logs and Events
         mainRenderer.drawBox(frameBuffer, 2, 15, W / 2, H - 2, "RECENT SYSTEM LOGS [L: Full Logs]", false);
@@ -207,8 +208,8 @@ public class DashboardViewRenderer {
         int maxStart = Math.max(0, visibleNodes.size() - visibleCount);
         if (viewportStart > maxStart) viewportStart = maxStart;
 
-        int treeWidth = (W - 31) - 4;
-        if (treeWidth < 40) treeWidth = 40;
+        int treeWidth = leftBoxWidth - 4;
+        if (treeWidth < 30) treeWidth = 30;
 
         if (visibleNodes.isEmpty()) {
             frameBuffer.printAt(4, 6, RED + "No gateways or clusters registered." + RESET);
@@ -240,15 +241,15 @@ public class DashboardViewRenderer {
             }
 
             if (viewportStart > 0) {
-                frameBuffer.printAt(W - 33, 5, WHITE_BOLD + "▲" + RESET);
+                frameBuffer.printAt(leftBoxWidth - 2, 6, WHITE_BOLD + "▲" + RESET);
             }
             if (viewportStart + visibleCount < visibleNodes.size()) {
-                frameBuffer.printAt(W - 33, 14, WHITE_BOLD + "▼" + RESET);
+                frameBuffer.printAt(leftBoxWidth - 2, 13, WHITE_BOLD + "▼" + RESET);
             }
         }
 
         // 4. Render GATEWAYS & SYSTEM Live Metrics
-        int xMetrics = W - 27;
+        int xMetrics = leftBoxWidth + 4;
         frameBuffer.printAt(xMetrics, 6, WHITE_BOLD + "SYSTEM RESOURCES" + RESET);
         long usedMem = (Runtime.getRuntime().totalMemory() - Runtime.getRuntime().freeMemory()) / (1024 * 1024);
         long allocatedMem = Runtime.getRuntime().totalMemory() / (1024 * 1024);
@@ -301,7 +302,8 @@ public class DashboardViewRenderer {
             int firstPort = tui.activeGateways().values().iterator().next().getPort();
             gwSummary += " (:" + firstPort + ")";
         }
-        String summaryPadding = StrUtils.repeat(" ", Math.max(0, 26 - stripAnsi(gwSummary).length()));
+        int rightBoxWidth = Math.max(20, W - leftBoxWidth - 2);
+        String summaryPadding = StrUtils.repeat(" ", Math.max(0, rightBoxWidth - stripAnsi(gwSummary).length() - 2));
         frameBuffer.printAt(xMetrics, 12, gwSummary + summaryPadding);
 
         // 5. Render RECENT SYSTEM LOGS
@@ -317,9 +319,7 @@ public class DashboardViewRenderer {
             for (int i = startIdx; i < dashboardLogs.size(); i++) {
                 DebugUtils.LogEntry entry = dashboardLogs.get(i);
                 String logLine = entry.toString();
-                StringBuilder clearedLine = new StringBuilder(logLine);
-                while (clearedLine.length() < maxLogWidth) clearedLine.append(" ");
-                String outputLine = clearedLine.substring(0, maxLogWidth);
+                String outputLine = truncateAnsi(logLine, maxLogWidth);
 
                 if (entry.getLevel() == DebugUtils.LogLevel.ERROR) {
                     frameBuffer.printAt(4, yLog, RED + outputLine + RESET);
@@ -377,8 +377,10 @@ public class DashboardViewRenderer {
                 }
 
                 String eventText = shortName + (event.detail().isEmpty() ? "" : ": " + event.detail());
-                if (eventText.length() > remaining) {
+                if (remaining > 3 && eventText.length() > remaining) {
                     eventText = eventText.substring(0, remaining - 3) + "...";
+                } else if (remaining <= 3 && eventText.length() > remaining) {
+                    eventText = eventText.substring(0, Math.max(0, remaining));
                 }
 
                 String color = YELLOW;
@@ -407,15 +409,17 @@ public class DashboardViewRenderer {
 
         // 7. Render bottom controls
         StringBuilder controlsStr = new StringBuilder();
-        controlsStr.append("  [▲/▼] Navigate  [Space/Enter] Expand/Collapse");
+        controlsStr.append("  [▲/▼] Nav [Enter] Select");
         if (!tui.readOnly()) {
-            controlsStr.append("  [G] Toggle GW  [N] Add Node");
-            if (tui.clusterManagementEnabled()) controlsStr.append("  [C] New Cluster");
+            controlsStr.append(" [G] GW [N] Node");
+            if (tui.clusterManagementEnabled()) controlsStr.append(" [C] Cluster");
         }
-        controlsStr.append("  [L] Logs  [Q] Exit");
+        controlsStr.append(" [L] Logs [Q] Exit");
 
+        String fullControls = WHITE_BOLD + "Controls:" + RESET + controlsStr.toString();
+        String truncatedControls = truncateAnsi(fullControls, W - 4);
         frameBuffer.printAt(2, H - 1, StrUtils.repeat(" ", W - 4));
-        frameBuffer.printAt(2, H - 1, WHITE_BOLD + "Controls:" + RESET + controlsStr.toString());
+        frameBuffer.printAt(2, H - 1, truncatedControls);
     }
 
     private String buildBranchPrefix(TuiTreeNode node, List<TuiTreeNode> visibleNodes, int index) {
@@ -477,7 +481,7 @@ public class DashboardViewRenderer {
 
     private static String stripAnsi(String text) {
         if (text == null) return "";
-        return text.replaceAll("\u001B\\[[;\\d]*m", "");
+        return text.replaceAll("\u001B\\[[?;0-9]*[a-zA-Z]", "");
     }
 
     private static String truncateAnsi(String text, int maxWidth) {
@@ -492,7 +496,7 @@ public class DashboardViewRenderer {
                 sb.append(c);
             } else if (inAnsi) {
                 sb.append(c);
-                if (c == 'm') inAnsi = false;
+                if (Character.isLetter(c)) inAnsi = false;
             } else {
                 if (visibleLen < maxWidth) {
                     sb.append(c);

@@ -40,10 +40,8 @@ public class NodeConfigViewRenderer {
         }
 
         ServerNode node = state.nodes.get(state.selectedNodeIndex);
-        int W = NativeTerminal.getTerminalWidth();
-        int H = NativeTerminal.getTerminalHeight();
-        if (W < 110) W = 110;
-        if (H < 24) H = 24;
+        int W = Math.max(80, frameBuffer.getWidth());
+        int H = Math.max(24, frameBuffer.getHeight());
 
         // Top half: configuration parameters
         mainRenderer.drawBox(frameBuffer, 2, 5, W, 14, "NODE CONFIGURATION PANEL - " + node.getFullHost(), true);

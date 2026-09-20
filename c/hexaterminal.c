@@ -193,7 +193,7 @@ JNIEXPORT void JNICALL Java_hexacloud_core_utils_terminal_NativeTerminal_initTer
     raw_mode_active = 1;
 
     int out_fd = get_term_out_fd();
-    write_tty(out_fd, "\033[2J\033[H\033[3J\033[?25l");
+    write_tty(out_fd, "\033[?1049h\033[2J\033[H\033[?25l");
 }
 
 JNIEXPORT void JNICALL Java_hexacloud_core_utils_terminal_NativeTerminal_resetTerminal0(JNIEnv *env, jclass clazz) {
@@ -208,7 +208,7 @@ JNIEXPORT void JNICALL Java_hexacloud_core_utils_terminal_NativeTerminal_resetTe
     raw_mode_active = 0;
 
     int out_fd = get_term_out_fd();
-    write_tty(out_fd, "\033[?25h\033[0m\n");
+    write_tty(out_fd, "\033[?1049l\033[?25h\033[0m\n");
 
     if (opened_tty_fd != -1) {
         close(opened_tty_fd);
@@ -272,7 +272,7 @@ JNIEXPORT jint JNICALL Java_hexacloud_core_utils_terminal_NativeTerminal_readKey
                     retries++;
                 }
 
-                if (seq[0] == '[') {
+                if (seq[0] == '[' || seq[0] == 'O') {
                     if (n2 > 0) {
                         switch (seq[1]) {
                             case 'A': return 1000; // UP Arrow
@@ -337,7 +337,7 @@ JNIEXPORT jint JNICALL Java_hexacloud_core_utils_terminal_NativeTerminal_getTerm
     if (ioctl(in_fd, TIOCGWINSZ, &w) == 0 && w.ws_col > 0) {
         return (jint)w.ws_col;
     }
-    return 110;
+    return 80;
 }
 
 JNIEXPORT jint JNICALL Java_hexacloud_core_utils_terminal_NativeTerminal_getTerminalHeight0(JNIEnv *env, jclass clazz) {
