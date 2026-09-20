@@ -4,20 +4,38 @@ import java.util.Scanner;
 
 public class TerminalScanner {
 
-    private static final Scanner SCANNER = new Scanner(System.in);
-
     private TerminalScanner() {}
 
     /**
-     * Reads a full line of text from standard input safely.
+     * Reads a full line of text from standard input safely without pre-buffering.
      * 
      * @return the trimmed input line, or an empty string if EOF.
      */
     public static synchronized String readLine() {
-        if (SCANNER.hasNextLine()) {
-            return SCANNER.nextLine().trim();
+        try {
+            StringBuilder sb = new StringBuilder();
+            int b;
+            while ((b = System.in.read()) != -1) {
+                if (b == '\n') {
+                    break;
+                }
+                if (b == '\r') {
+                    // Check if \n follows
+                    if (System.in.available() > 0) {
+                        System.in.mark(1);
+                        int next = System.in.read();
+                        if (next != '\n') {
+                            System.in.reset();
+                        }
+                    }
+                    break;
+                }
+                sb.append((char) b);
+            }
+            return sb.toString().trim();
+        } catch (Exception e) {
+            return "";
         }
-        return "";
     }
 
     /**
@@ -26,8 +44,10 @@ public class TerminalScanner {
      * @return the trimmed token, or an empty string if EOF.
      */
     public static synchronized String readToken() {
-        if (SCANNER.hasNext()) {
-            return SCANNER.next().trim();
+        String line = readLine();
+        if (!line.isEmpty()) {
+            String[] parts = line.split("\\s+");
+            return parts[0].trim();
         }
         return "";
     }

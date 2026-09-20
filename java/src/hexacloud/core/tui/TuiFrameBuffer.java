@@ -17,7 +17,7 @@ public class TuiFrameBuffer {
     public void beginFrame() {
         buffer.setLength(0);
         buffer.append("\u001B[?25l"); // Hide cursor
-        buffer.append("\u001B[H");     // Move cursor home (1,1) without clear
+        buffer.append("\u001B[H\u001B[2J"); // Move cursor home (1,1) and clear screen
     }
 
     public void printAt(int x, int y, String text) {

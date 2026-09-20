@@ -133,6 +133,21 @@ public class NativeTerminal {
             if (osName.contains("linux") || osName.contains("mac") || osName.contains("nix") || osName.contains("nux")) {
                 new ProcessBuilder("sh", "-c", "stty raw -echo < /dev/tty").start().waitFor();
                 sttyRawModeActive = true;
+
+                // One-time initial dimension fetch
+                try {
+                    Process p = new ProcessBuilder("sh", "-c", "tput cols < /dev/tty; tput lines < /dev/tty").start();
+                    try (java.io.BufferedReader r = new java.io.BufferedReader(new java.io.InputStreamReader(p.getInputStream()))) {
+                        String wStr = r.readLine();
+                        String hStr = r.readLine();
+                        if (wStr != null && hStr != null) {
+                            cachedWidth = Math.max(20, Integer.parseInt(wStr.trim()));
+                            cachedHeight = Math.max(5, Integer.parseInt(hStr.trim()));
+                        }
+                    }
+                    p.waitFor();
+                } catch (Exception ignored) {}
+
                 // Clear screen and hide cursor using ANSI escape code
                 hexacloud.core.utils.common.DebugUtils.getOriginalOut().print("\033[2J\033[H\033[3J\033[?25l");
                 hexacloud.core.utils.common.DebugUtils.getOriginalOut().flush();
@@ -293,10 +308,11 @@ public class NativeTerminal {
 
     private static void updateTerminalSize() {
         long now = System.currentTimeMillis();
-        if (now - lastSizeCheck < 200) {
+        if (now - lastSizeCheck < 2000) { // Check size at most every 2 seconds
             return;
         }
         lastSizeCheck = now;
+
         if (loaded) {
             try {
                 int w = getTerminalWidth0();
@@ -310,44 +326,20 @@ public class NativeTerminal {
                 // Fallback
             }
         }
-        boolean ttySuccess = true;
 
-        int width = readTerminalDimension(new ProcessBuilder("sh", "-c", "tput cols < /dev/tty"),-1);
-        int height = readTerminalDimension(new ProcessBuilder("sh", "-c", "tput lines < /dev/tty"),-1);
-
-        if (width == -1 || height == -1) {
-            ttySuccess = false;
-        }
-
-        if (ttySuccess) {
-            cachedWidth = width;
-            cachedHeight = height;
-        } else {
-            cachedWidth = readTerminalDimension(
-                new ProcessBuilder("sh", "-c", "tput cols"),
-                cachedWidth
-            );
-
-            cachedHeight = readTerminalDimension(
-                new ProcessBuilder("sh", "-c", "tput lines"),
-                cachedHeight
-            );
-        }
-    }
-
-    private static int readTerminalDimension(ProcessBuilder processBuilder, int defaultValue) {
-        try {
-            Process process = processBuilder.start();
-            try (java.io.BufferedReader reader = new java.io.BufferedReader(new java.io.InputStreamReader(process.getInputStream()))) {
-                String line = reader.readLine();
-                if (line != null) {
-                    process.waitFor();
-                    return Integer.parseInt(line.trim());
+        // Try environment variables COLUMNS and LINES
+        String cols = System.getenv("COLUMNS");
+        String lines = System.getenv("LINES");
+        if (cols != null && lines != null) {
+            try {
+                int w = Integer.parseInt(cols.trim());
+                int h = Integer.parseInt(lines.trim());
+                if (w > 0 && h > 0) {
+                    cachedWidth = w;
+                    cachedHeight = h;
+                    return;
                 }
-            }
-        } catch (Exception e) {
-            // Ignore
+            } catch (Exception ignored) {}
         }
-        return defaultValue;
     }
 }
