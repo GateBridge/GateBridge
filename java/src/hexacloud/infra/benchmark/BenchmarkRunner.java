@@ -537,7 +537,8 @@ public class BenchmarkRunner {
         WsBenchmarkClient wsClient = "ws".equalsIgnoreCase(protocol) ? new WsBenchmarkClient(metrics) : null;
         TelnetBenchmarkClient telnetClient = "telnet".equalsIgnoreCase(protocol) ? new TelnetBenchmarkClient(metrics) : null;
 
-        try (ExecutorService executor = ThreadManager.newVirtualThreadPool()) {
+        ExecutorService executor = ThreadManager.newVirtualThreadPool();
+        try {
             for (int i = 0; i < concurrency; i++) {
                 executor.submit(() -> {
                     try {
@@ -613,9 +614,9 @@ public class BenchmarkRunner {
             }
 
             running.set(false);
-            executor.shutdownNow();
-
             return aggregateMedianStepResult(stepIndex, concurrency, runResults);
+        } finally {
+            executor.shutdownNow();
         }
     }
 

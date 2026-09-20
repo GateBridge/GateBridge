@@ -618,18 +618,27 @@ The TUI subsystem is modularly partitioned into isolated components:
 
 ```text
 hexacloud.core.tui
-├── TerminalUI.java              -> Main coordinator, life cycle & semaphore loop
+├── TerminalUI.java              -> Main coordinator, life cycle & reactor loop
 ├── TerminalUiFactory.java       -> Fluent builder configuring TUI permissions
 ├── TuiState.java                -> View state, active focus, cursor positions
 ├── TuiRenderer.java             -> Canvas renderer, border drawing, ANSI styling
 ├── TuiKeyHandler.java           -> Keycode dispatcher (arrows, enter, shortcuts)
 ├── TuiPrompts.java              -> Interactive dialog modals (suspends raw mode)
 ├── TuiConstants.java            -> ANSI colors, panel focus IDs, refresh delays
-└── view
-    ├── DashboardViewRenderer.java    -> Primary 2-column cluster/node dashboard
-    ├── ClusterDetailViewRenderer.java -> Detailed node inspection & config
-    ├── NodeConfigViewRenderer.java   -> Ping path, token headers, protocols
-    └── FullLogsViewRenderer.java     -> Scrollable system logs viewer
+├── TuiFrameBuffer.java          -> Double-buffered frame generator & atomic flush
+├── engine
+│   ├── TuiEventLoop.java        -> Single-threaded event reactor handling UIEvent queue
+│   └── UIEvent.java             -> Typed event hierarchy (KeyPress, Resize, Redraw, Action, Shutdown)
+├── model
+│   └── NodeView.java            -> Immutable ServerNode snapshot preventing partial render reads
+├── view
+│   ├── DashboardViewRenderer.java    -> Primary 2-column cluster/node dashboard
+│   ├── ClusterDetailViewRenderer.java -> Detailed node inspection & config
+│   ├── NodeConfigViewRenderer.java   -> Ping path, token headers, protocols
+│   └── FullLogsViewRenderer.java     -> Scrollable system logs viewer
+└── utils.terminal
+    ├── AnsiEscapeParser.java    -> Stateful universal ANSI escape byte stream parser
+    └── NativeTerminal.java      -> JNI terminal wrapper & SIGWINCH self-pipe listener
 ```
 
 ### Event-Driven Screen Redraw Model
@@ -640,37 +649,37 @@ Unlike conventional console applications that run tight, CPU-burning rendering l
 graph TD
     subgraph Triggers ["Redraw Event Sources"]
         E1["Cluster Event Bus: Status / Telemetry"]
-        E2["TuiInputReader: Key Press Detected"]
-        E3["Terminal Resize Signal"]
+        E2["TuiInputReader: Keystroke Parsed by AnsiEscapeParser"]
+        E3["SIGWINCH Self-Pipe: Resize Signal 2000"]
     end
 
-    subgraph Coordinator ["TerminalUI Coordination"]
-        Sem[("redrawSemaphore: Semaphore")]
-        MainLoop["Main TUI Thread: sem.acquire"]
-        SleepDebounce["Sleep 15ms Debounce Window"]
-        Drain["redrawSemaphore.drainPermits"]
-        Render["TuiRenderer.renderCurrentView"]
+    subgraph Coordinator ["TuiEventLoop Single-Threaded Reactor"]
+        Queue[("eventQueue: LinkedBlockingQueue<UIEvent>")]
+        MainLoop["Reactor Thread: eventQueue.take()"]
+        Dispatch["Dispatch to TuiKeyHandler & TuiState"]
+        Render["TuiRenderer + TuiFrameBuffer.flushToTerminal"]
     end
 
-    E1 -->|sem.release| Sem
-    E2 -->|sem.release| Sem
-    E3 -->|sem.release| Sem
+    E1 -->|postEvent: RedrawEvent| Queue
+    E2 -->|postEvent: KeyPressEvent| Queue
+    E3 -->|postEvent: ResizeEvent| Queue
 
-    Sem -->|Permit Released| MainLoop
-    MainLoop --> SleepDebounce
-    SleepDebounce --> Drain
-    Drain --> Render
-    Render -->|Wait for next permit| MainLoop
+    Queue -->|Take Event| MainLoop
+    MainLoop --> Dispatch
+    Dispatch --> Render
+    Render -->|Wait for next event| MainLoop
 
     classDef src fill:#313244,stroke:#89b4fa,stroke-width:1px,color:#cdd6f4;
     classDef coord fill:#1e1e2e,stroke:#a6e3a1,stroke-width:2px,color:#cdd6f4;
     class E1,E2,E3 src;
-    class Sem,MainLoop,SleepDebounce,Drain,Render coord;
+    class Queue,MainLoop,Dispatch,Render coord;
 ```
 
-1. **Zero-CPU Idle Sleep**: The main rendering thread blocks on `redrawSemaphore.acquire()`. When no user inputs or cluster events occur, **CPU utilization is 0.0%**.
-2. **Keyboard Polling Worker**: A lightweight virtual thread (`TuiInputReader`) polls keyboard input every 50ms using `NativeTerminal.readKey()`. When a keystroke occurs, it modifies `TuiState` and calls `redrawSemaphore.release()`.
-3. **Redraw Coalescing & Debouncing**: When multiple events fire simultaneously (e.g., 50 node ping responses arriving together), the main loop wakes up, sleeps for 15ms, drains all accumulated permits (`redrawSemaphore.drainPermits()`), and executes **a single clean screen render**, preventing terminal visual flickering.
+1. **Zero-CPU Idle Sleep**: The event reactor thread in `TuiEventLoop` blocks on `eventQueue.take()`. When no user inputs or cluster events occur, **CPU utilization is 0.0%**.
+2. **Keyboard Polling & ANSI Parsing**: A lightweight virtual thread (`TuiInputReader`) polls keyboard input using `NativeTerminal.readKey()`. Raw escape sequences are parsed statefully by `AnsiEscapeParser` into `UIEvent` objects posted to `TuiEventLoop`.
+3. **`SIGWINCH` Self-Pipe Signal**: Thin C native wrapper (`hexaterminal.c`) intercepts `SIGWINCH` window resize signals asynchronously using a self-pipe and pushes signal byte `2000` to the Java input stream, triggering instant `ResizeEvent` redraws.
+4. **Immutable Render Snapshots (`NodeView`)**: `TuiRenderer` creates point-in-time `NodeView` snapshots from `ServerNode` instances before drawing to prevent race conditions during active background telemetry updates.
+5. **Atomic Double-Buffering (`TuiFrameBuffer`)**: Frame output strings are double-buffered in `TuiFrameBuffer` and flushed to standard output in a single I/O operation (`flushToTerminal()`), eliminating terminal visual flickering.
 
 ### Real-Time OS Thread Classification (App vs. Daemon)
 
@@ -686,22 +695,22 @@ This provides real-time visibility into thread leakage and confirms that Loom vi
 - **Stream Hijacking (`redirectSystemOut = true`)**: `PrintStreamFactory` wraps `System.out` and `System.err` in a thread-safe circular ring buffer. Log outputs are routed into the TUI log panel rather than corrupting the interactive terminal canvas.
 - **Detachable Toggle Mode (`startToggleMode()`)**:
   - Bootstraps gateways in the background while printing regular log lines to stdout.
-  - Pressing `ENTER` or `M` attaches the interactive full-screen TUI immediately.
-  - Pressing `Q` or `ESC` detaches the TUI, restoring terminal canonical mode without interrupting running gateways or terminating the JVM.
+  - Pressing `ENTER` or `M` attaches the interactive full-screen TUI immediately, engaging the ANSI Alternate Screen Buffer (`\e[?1049h`).
+  - Pressing `Q` or `ESC` detaches the TUI, exiting the Alternate Screen Buffer (`\e[?1049l`) and restoring terminal canonical mode without interrupting running gateways or terminating the JVM.
 
 ### Native JNI & Platform Portability Hierarchy
 
-The TUI keystroke reading and cursor rendering utilizes a 3-tier fallback hierarchy:
+The TUI keystroke reading, resize signal processing, and cursor rendering utilizes a 3-tier fallback hierarchy:
 
 ```text
 Tier 1: Native JNI Mode (libhexaterminal.so / .dylib / .dll)
-   │  Direct OS ioctl / tcsetattr / GetConsoleScreenBufferInfo calls
+   │  Direct OS ioctl / tcsetattr / SIGWINCH self-pipe signal handling
    ▼ (If native library missing)
 Tier 2: Pure Java stty Fallback (Unix / Linux / macOS)
-   │  Spawns background process: "stty raw -echo < /dev/tty"
+   │  Spawns background process: "stty raw -echo < /dev/tty" + AnsiEscapeParser
    ▼ (If not on Unix or stty unavailable)
 Tier 3: ANSI Emulation Fallback (Windows / Headless CI)
-      Standard System.in line buffer & standard ANSI escape sequences
+      Standard System.in line buffer & universal AnsiEscapeParser escape sequence decoding
 ```
 
 Developers can configure custom JNI libraries via JVM arguments (`-Dgatebridge.jni.path=/path/to/libhexaterminal.so`), environment variables (`GATEBRIDGE_JNI_PATH`), or programmatic invocation (`NativeTerminal.loadJni(...)`).

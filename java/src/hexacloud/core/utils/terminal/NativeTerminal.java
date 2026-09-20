@@ -260,7 +260,7 @@ public class NativeTerminal {
      * from a Virtual Thread (Loom) to prevent carrier thread pinning.
      */
     public static int readKey() {
-        if (Thread.currentThread().isVirtual()) {
+        if (isCurrentThreadVirtual()) {
             try {
                 return PLATFORM_EXECUTOR.submit(NativeTerminal::readKeyInternal).get();
             } catch (Exception e) {
@@ -268,6 +268,15 @@ public class NativeTerminal {
             }
         } else {
             return readKeyInternal();
+        }
+    }
+
+    private static boolean isCurrentThreadVirtual() {
+        try {
+            java.lang.reflect.Method method = Thread.class.getMethod("isVirtual");
+            return (Boolean) method.invoke(Thread.currentThread());
+        } catch (Throwable t) {
+            return false;
         }
     }
 
