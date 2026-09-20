@@ -285,6 +285,7 @@ public class NativeTerminal {
             try {
                 int val = readKey0();
                 if (val == 2000) { // Window resize signal
+                    forceUpdateTerminalSize();
                     return 2000;
                 }
                 if (val >= 0) {
@@ -331,6 +332,11 @@ public class NativeTerminal {
     private static int cachedHeight = 24;
     private static long lastSizeCheck = 0;
 
+    public static synchronized void forceUpdateTerminalSize() {
+        lastSizeCheck = 0;
+        updateTerminalSize();
+    }
+
     public static synchronized int getTerminalWidth() {
         updateTerminalSize();
         return Math.max(20, cachedWidth);
@@ -342,12 +348,6 @@ public class NativeTerminal {
     }
 
     private static void updateTerminalSize() {
-        long now = System.currentTimeMillis();
-        if (now - lastSizeCheck < 2000) { // Check size at most every 2 seconds
-            return;
-        }
-        lastSizeCheck = now;
-
         if (loaded) {
             try {
                 int w = getTerminalWidth0();
@@ -361,6 +361,12 @@ public class NativeTerminal {
                 // Fallback
             }
         }
+
+        long now = System.currentTimeMillis();
+        if (now - lastSizeCheck < 1000) {
+            return;
+        }
+        lastSizeCheck = now;
 
         // Try environment variables COLUMNS and LINES
         String cols = System.getenv("COLUMNS");
