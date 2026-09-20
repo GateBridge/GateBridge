@@ -131,8 +131,10 @@ public class NativeTerminal {
         try {
             String osName = System.getProperty("os.name").toLowerCase();
             if (osName.contains("linux") || osName.contains("mac") || osName.contains("nix") || osName.contains("nux")) {
-                new ProcessBuilder("sh", "-c", "stty raw -echo < /dev/tty").start().waitFor();
-                sttyRawModeActive = true;
+                try {
+                    new ProcessBuilder("sh", "-c", "stty raw -echo < /dev/tty").start().waitFor();
+                    sttyRawModeActive = true;
+                } catch (Exception ignored) {}
 
                 // One-time initial dimension fetch
                 try {
@@ -147,14 +149,13 @@ public class NativeTerminal {
                     }
                     p.waitFor();
                 } catch (Exception ignored) {}
-
-                // Enter alternate screen buffer, clear screen, and hide cursor
-                hexacloud.core.utils.common.DebugUtils.getOriginalOut().print("\033[?1049h\033[2J\033[H\033[?25l");
-                hexacloud.core.utils.common.DebugUtils.getOriginalOut().flush();
             }
         } catch (Exception e) {
             // Ignore
         }
+        // Enter alternate screen buffer, clear screen once on startup, home cursor, hide cursor
+        hexacloud.core.utils.common.DebugUtils.getOriginalOut().print("\033[?1049h\033[2J\033[H\033[?25l");
+        hexacloud.core.utils.common.DebugUtils.getOriginalOut().flush();
     }
 
     public static synchronized void resetTerminal() {
@@ -169,14 +170,14 @@ public class NativeTerminal {
         if (sttyRawModeActive) {
             try {
                 new ProcessBuilder("sh", "-c", "stty sane < /dev/tty").start().waitFor();
-                sttyRawModeActive = false;
-                // Exit alternate screen buffer, show cursor, and reset attributes
-                hexacloud.core.utils.common.DebugUtils.getOriginalOut().print("\033[?1049l\033[?25h\033[0m\n");
-                hexacloud.core.utils.common.DebugUtils.getOriginalOut().flush();
             } catch (Exception e) {
                 // Ignore
             }
+            sttyRawModeActive = false;
         }
+        // Exit alternate screen buffer, show cursor, and reset colors/attributes
+        hexacloud.core.utils.common.DebugUtils.getOriginalOut().print("\033[?1049l\033[?25h\033[0m\n");
+        hexacloud.core.utils.common.DebugUtils.getOriginalOut().flush();
     }
 
     public static synchronized void clearScreen() {

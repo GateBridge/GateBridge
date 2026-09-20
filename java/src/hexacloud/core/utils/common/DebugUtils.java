@@ -78,10 +78,18 @@ public class DebugUtils {
     private static final java.io.PrintStream originalOut = System.out;
     private static final java.io.PrintStream originalErr = System.err;
 
+    /**
+     * Returns a PrintStream wrapping new FileOutputStream(FileDescriptor.out),
+     * completely bypassing Jansi's AnsiOutputStream and System.out redirection when redirectSystemOut(true) is active.
+     */
     public static java.io.PrintStream getOriginalOut() {
         return directOut;
     }
 
+    /**
+     * Returns a PrintStream wrapping new FileOutputStream(FileDescriptor.err),
+     * completely bypassing System.err redirection when redirectSystemOut(true) is active.
+     */
     public static java.io.PrintStream getOriginalErr() {
         return directErr;
     }

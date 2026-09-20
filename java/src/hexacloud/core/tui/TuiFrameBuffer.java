@@ -1,7 +1,5 @@
 package hexacloud.core.tui;
 
-import java.util.Arrays;
-
 public class TuiFrameBuffer {
 
     private final int width;
