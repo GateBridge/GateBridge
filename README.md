@@ -7,7 +7,11 @@
 [![Build Status](https://img.shields.io/badge/Build-Maven-blue.svg)](https://maven.apache.org/)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
-GateBridge is a lightweight Java cluster gateway framework featuring multi-protocol transports, Loom-based virtual threading (with seamless Java 8 compatibility overlays), dynamic autodiscovery, and an interactive DevOps TUI telemetry console.
+**A Java gateway for routing traffic to cluster servers and monitoring their health.**
+
+GateBridge sits between clients and the servers running your application. It can forward HTTP requests and TCP connections to available servers, check whether those servers are healthy, and show their status and telemetry in a terminal dashboard. You configure it in Java and can embed it in a Java application or run it as a standalone service.
+
+Use GateBridge when you want one place to direct traffic across several Java-compatible backend services and see which servers are available. The sections below explain its transports, routing, monitoring, and extension points.
 
 ---
 
