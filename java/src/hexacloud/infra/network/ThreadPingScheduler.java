@@ -24,8 +24,8 @@ public class ThreadPingScheduler {
 
     private ScheduledExecutorService scheduler;
     private int interval = ClusterConfig.DEFAULT_PING_INTERVAL_SECONDS;
-    private int failureThreshold = ClusterConfig.DEFAULT_FAILURE_THRESHOLD;
-    private int recoveryThreshold = ClusterConfig.DEFAULT_RECOVERY_THRESHOLD;
+    private volatile int failureThreshold = ClusterConfig.DEFAULT_FAILURE_THRESHOLD;
+    private volatile int recoveryThreshold = ClusterConfig.DEFAULT_RECOVERY_THRESHOLD;
 
     private final ConcurrentHashMap<String, Integer> failureCounters = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, Integer> recoveryCounters = new ConcurrentHashMap<>();
