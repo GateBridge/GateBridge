@@ -151,17 +151,22 @@ public class HttpTransport implements ServerTransport {
                             if (canUseFastPath) {
                                 BiConsumer<String, PrintWriter> handler = registry.getRoutes().get(resolution.localRouteName());
                                 if (handler != null) {
-                                    if (resolution.localRouteName().equals("/V1/GET_NODES_JSON")) {
-                                        exchange.getResponseHeaders().set("Content-Type", "application/json");
-                                    } else {
-                                        exchange.getResponseHeaders().set("Content-Type", "text/plain");
-                                    }
-                                    exchange.sendResponseHeaders(200, 0);
-                                    try (PrintWriter out = new PrintWriter(new java.io.BufferedWriter(new java.io.OutputStreamWriter(exchange.getResponseBody(), java.nio.charset.StandardCharsets.UTF_8)))) {
+                                    java.io.ByteArrayOutputStream baos = new java.io.ByteArrayOutputStream();
+                                    try (PrintWriter out = new PrintWriter(new java.io.BufferedWriter(new java.io.OutputStreamWriter(baos, java.nio.charset.StandardCharsets.UTF_8)))) {
                                         String query = exchange.getRequestURI().getQuery();
                                         String args = query != null ? query : "";
                                         handler.accept(args, out);
                                     }
+                                    byte[] responseBytes = baos.toByteArray();
+                                    String routeNameUpper = resolution.localRouteName().toUpperCase();
+                                    String contentType = "text/plain";
+                                    if (routeNameUpper.equals("/") || routeNameUpper.endsWith("_JSON") || routeNameUpper.endsWith("/HEALTH") ||
+                                       (responseBytes.length > 0 && (responseBytes[0] == '{' || responseBytes[0] == '['))) {
+                                        contentType = "application/json; charset=utf-8";
+                                    }
+                                    exchange.getResponseHeaders().set("Content-Type", contentType);
+                                    exchange.sendResponseHeaders(200, responseBytes.length);
+                                    exchange.getResponseBody().write(responseBytes);
                                     return;
                                 }
                             }

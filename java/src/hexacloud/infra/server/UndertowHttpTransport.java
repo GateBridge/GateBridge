@@ -262,13 +262,6 @@ public class UndertowHttpTransport implements ServerTransport {
 
                     BiConsumer<String, PrintWriter> handler = registry.getRoutes().get(resolution.localRouteName());
                     if (handler != null) {
-                        if (resolution.localRouteName().equals("/V1/GET_NODES_JSON")) {
-                            exchange.getResponseHeaders().put(io.undertow.util.Headers.CONTENT_TYPE, "application/json");
-                        } else {
-                            exchange.getResponseHeaders().put(io.undertow.util.Headers.CONTENT_TYPE, "text/plain");
-                        }
-                        exchange.setStatusCode(200);
-
                         FastPrintWriter out = FAST_WRITER.get();
                         out.reset();
                         String query = req.getQuery();
@@ -276,6 +269,14 @@ public class UndertowHttpTransport implements ServerTransport {
                         handler.accept(args, out);
 
                         byte[] responseBytes = out.toBytes();
+                        String routeNameUpper = resolution.localRouteName().toUpperCase();
+                        String contentType = "text/plain";
+                        if (routeNameUpper.equals("/") || routeNameUpper.endsWith("_JSON") || routeNameUpper.endsWith("/HEALTH") ||
+                           (responseBytes.length > 0 && (responseBytes[0] == '{' || responseBytes[0] == '['))) {
+                            contentType = "application/json; charset=utf-8";
+                        }
+                        exchange.getResponseHeaders().put(io.undertow.util.Headers.CONTENT_TYPE, contentType);
+                        exchange.setStatusCode(200);
                         exchange.getResponseHeaders().put(io.undertow.util.Headers.CONTENT_LENGTH, String.valueOf(responseBytes.length));
                         exchange.getResponseSender().send(java.nio.ByteBuffer.wrap(responseBytes));
                         return;
