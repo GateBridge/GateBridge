@@ -29,13 +29,16 @@ public class TokenAuthFilter implements HttpFilter {
                 int slashIdx = pathWithoutClusters.indexOf('/');
                 if (slashIdx != -1) {
                     String clusterSubpath = pathWithoutClusters.substring(slashIdx);
-                    routeName = clusterSubpath.length() > 1 ? clusterSubpath.substring(1).toUpperCase() : "";
+                    routeName = clusterSubpath.length() > 1 ? clusterSubpath.substring(1).toUpperCase() : "/";
                 }
             } else {
-                routeName = path.length() > 1 ? path.substring(1).toUpperCase() : "";
+                routeName = path.length() > 1 ? path.substring(1).toUpperCase() : "/";
             }
         }
-        if (cluster.getRouteRegistry() != null && cluster.getRouteRegistry().isRoutePublic(routeName)) {
+        if (cluster.getRouteRegistry() != null &&
+           (cluster.getRouteRegistry().isRoutePublic(routeName) ||
+            cluster.getRouteRegistry().isRoutePublic(path) ||
+            (("/".equals(path) || "".equals(routeName)) && cluster.getRouteRegistry().isRoutePublic("/")))) {
             chain.doFilter(request, response);
             return;
         }
