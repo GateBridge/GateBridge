@@ -6,7 +6,9 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.function.Supplier;
 
+import hexacloud.core.cluster.event.ClusterEvent;
 import hexacloud.core.cluster.event.ClusterEventBusManager;
+import hexacloud.core.cluster.event.ClusterListener;
 import hexacloud.core.cluster.event.ClusterEvent.NodeStatusChanged;
 import hexacloud.core.model.NodeStatus;
 import hexacloud.core.model.PingResult;
@@ -38,6 +40,14 @@ public class ThreadPingScheduler {
         this.clusterName = clusterName;
         this.eventManager = eventManager;
         this.pingClient = new MultiProtocolPingAdapter();
+        if (eventManager != null) {
+            eventManager.sub(ClusterEvent.NodeDeregistered.class, (ClusterListener) event -> {
+                if (event instanceof ClusterEvent.NodeDeregistered dereg && dereg.host() != null) {
+                    failureCounters.remove(dereg.host());
+                    recoveryCounters.remove(dereg.host());
+                }
+            });
+        }
     }
     
     public void startPingScheduler(Supplier<List<ServerNode>> clusterSupplier) {
@@ -100,7 +110,7 @@ public class ThreadPingScheduler {
             if (node.status() != NodeStatus.ONLINE && successes >= recoveryThreshold) {
                 recoveryCounters.put(nodeId, 0);
                 eventManager.dispatch(new NodeStatusChanged(node.getFullHost(), NodeStatus.ONLINE, nodeId));
-                DebugUtils.info("Node " + node.getFullHost() + " status updated to ONLINE (" + nodeId + ")");
+                DebugUtils.info("Dispatching NodeStatusChanged ONLINE event for node " + node.getFullHost() + " (" + nodeId + ")");
             }
         } else {
             recoveryCounters.put(nodeId, 0);
@@ -108,7 +118,7 @@ public class ThreadPingScheduler {
             if (node.status() != NodeStatus.OFFLINE && failures >= failureThreshold) {
                 failureCounters.put(nodeId, 0);
                 eventManager.dispatch(new NodeStatusChanged(node.getFullHost(), NodeStatus.OFFLINE, nodeId));
-                DebugUtils.info("Node " + node.getFullHost() + " status updated to OFFLINE (" + nodeId + ")");
+                DebugUtils.info("Dispatching NodeStatusChanged OFFLINE event for node " + node.getFullHost() + " (" + nodeId + ")");
             }
         }
     }
