@@ -158,10 +158,11 @@ public class HttpTransport implements ServerTransport {
                                         handler.accept(args, out);
                                     }
                                     byte[] responseBytes = baos.toByteArray();
+                                    String bodyStr = new String(responseBytes, java.nio.charset.StandardCharsets.UTF_8).trim();
                                     String routeNameUpper = resolution.localRouteName().toUpperCase();
                                     String contentType = "text/plain";
                                     if (routeNameUpper.equals("/") || routeNameUpper.endsWith("_JSON") || routeNameUpper.endsWith("/HEALTH") ||
-                                       (responseBytes.length > 0 && (responseBytes[0] == '{' || responseBytes[0] == '['))) {
+                                       bodyStr.startsWith("{") || bodyStr.startsWith("[")) {
                                         contentType = "application/json; charset=utf-8";
                                     }
                                     exchange.getResponseHeaders().set("Content-Type", contentType);
