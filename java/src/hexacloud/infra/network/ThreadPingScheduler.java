@@ -2,6 +2,7 @@ package hexacloud.infra.network;
 
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.function.Supplier;
 
@@ -23,6 +24,11 @@ public class ThreadPingScheduler {
 
     private ScheduledExecutorService scheduler;
     private int interval = ClusterConfig.DEFAULT_PING_INTERVAL_SECONDS;
+    private int failureThreshold = ClusterConfig.DEFAULT_FAILURE_THRESHOLD;
+    private int recoveryThreshold = ClusterConfig.DEFAULT_RECOVERY_THRESHOLD;
+
+    private final ConcurrentHashMap<String, Integer> failureCounters = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, Integer> recoveryCounters = new ConcurrentHashMap<>();
 
     private final String clusterName;
     private final PingClientPort pingClient;
@@ -70,6 +76,43 @@ public class ThreadPingScheduler {
         this.interval = intervalInSeconds;
     }
 
+    public int getFailureThreshold() {
+        return failureThreshold;
+    }
+
+    public void setFailureThreshold(int failureThreshold) {
+        this.failureThreshold = Math.max(1, failureThreshold);
+    }
+
+    public int getRecoveryThreshold() {
+        return recoveryThreshold;
+    }
+
+    public void setRecoveryThreshold(int recoveryThreshold) {
+        this.recoveryThreshold = Math.max(1, recoveryThreshold);
+    }
+
+    public void evaluatePingOutcome(ServerNode node, NodeStatus resultStatus) {
+        String nodeId = node.getId();
+        if (resultStatus == NodeStatus.ONLINE) {
+            failureCounters.put(nodeId, 0);
+            int successes = recoveryCounters.compute(nodeId, (k, v) -> v == null ? 1 : v + 1);
+            if (node.status() != NodeStatus.ONLINE && successes >= recoveryThreshold) {
+                recoveryCounters.put(nodeId, 0);
+                eventManager.dispatch(new NodeStatusChanged(node.getFullHost(), NodeStatus.ONLINE, nodeId));
+                DebugUtils.info("Node " + node.getFullHost() + " status updated to ONLINE (" + nodeId + ")");
+            }
+        } else {
+            recoveryCounters.put(nodeId, 0);
+            int failures = failureCounters.compute(nodeId, (k, v) -> v == null ? 1 : v + 1);
+            if (node.status() != NodeStatus.OFFLINE && failures >= failureThreshold) {
+                failureCounters.put(nodeId, 0);
+                eventManager.dispatch(new NodeStatusChanged(node.getFullHost(), NodeStatus.OFFLINE, nodeId));
+                DebugUtils.info("Node " + node.getFullHost() + " status updated to OFFLINE (" + nodeId + ")");
+            }
+        }
+    }
+
     private void pingClusterNode(ServerNode node) {
         if (!node.pingEnabled()) {
             return;
@@ -77,12 +120,7 @@ public class ThreadPingScheduler {
         CompletableFuture<PingResult> response = pingClient.fetchPingAsync(clusterName, node);
 
         response.thenAccept(result -> {
-            NodeStatus status = result.status();
-            boolean statusChanged = node.status() != status;
-            if (statusChanged) {
-                eventManager.dispatch(new NodeStatusChanged(node.getFullHost(), status, node.getId()));
-                DebugUtils.info("Node " + node.getFullHost() + " status updated to " + status + " (" + node.getId() + ")");
-            }
+            evaluatePingOutcome(node, result.status());
             
             if (result.hasTelemetry()){
                 eventManager.dispatch(new hexacloud.core.cluster.event.ClusterEvent.NodeTelemetryUpdated(node.getFullHost(), node.getId()));
