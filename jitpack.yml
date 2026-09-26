@@ -7,7 +7,7 @@ install:
       mvn install -Pjava8 -Dmaven.test.skip=true
     elif [[ $VERSION == *"jdk17" ]]; then
       mvn install -Pjava17 -DskipTests
-    elif [[ $VERSION == *"jdk21" ]]; then
+    else
       mvn install -Pjava21 -DskipTests
     fi
 
