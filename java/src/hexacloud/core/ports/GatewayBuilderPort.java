@@ -48,6 +48,16 @@ public interface GatewayBuilderPort {
     GatewayBuilderPort pingInterval(int intervalInSeconds);
 
     /**
+     * Set the failure threshold count for the ping scheduler before marking a node offline.
+     */
+    GatewayBuilderPort pingFailureThreshold(int count);
+
+    /**
+     * Set the recovery threshold count for the ping scheduler before marking a node online.
+     */
+    GatewayBuilderPort pingRecoveryThreshold(int count);
+
+    /**
      * Enable or disable the Telnet server transport interface.
      */
     GatewayBuilderPort enableTelnet(boolean enabled);

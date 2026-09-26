@@ -158,6 +158,28 @@ public class LocalGatewayAdapter implements GatewayBuilderPort, RunningGatewayPo
     }
 
     @Override
+    public LocalGatewayAdapter pingFailureThreshold(int count) {
+        if (count <= 0) {
+            throw new IllegalArgumentException("pingFailureThreshold must be > 0");
+        }
+        this.schedulerPing.setFailureThreshold(count);
+        return this;
+    }
+
+    @Override
+    public LocalGatewayAdapter pingRecoveryThreshold(int count) {
+        if (count <= 0) {
+            throw new IllegalArgumentException("pingRecoveryThreshold must be > 0");
+        }
+        this.schedulerPing.setRecoveryThreshold(count);
+        return this;
+    }
+
+    public ThreadPingScheduler getSchedulerPing() {
+        return this.schedulerPing;
+    }
+
+    @Override
     public LocalGatewayAdapter startPingScheduler() {
         schedulerPing.startPingScheduler(() -> this.getClusters().stream()
                 .flatMap(cluster -> cluster.getCluster().stream())
