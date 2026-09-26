@@ -49,6 +49,20 @@ public class RouteRegistry {
         return fastPathRoutes.contains(routeName.toUpperCase());
     }
 
+    public boolean isRouteAdmin(String routeName) {
+        if (routeName == null) return false;
+        String upper = routeName.toUpperCase();
+        if (!upper.startsWith("/")) {
+            upper = "/" + upper;
+        }
+        return upper.equals("/V1/GET_NODES") || upper.equals("/V1/GET_NODES_JSON")
+            || upper.equals("/V1/GET_CLUSTERS_JSON") || upper.equals("/V1/REGISTER")
+            || upper.equals("/V1/TELEMETRY") || upper.equals("/V1/DEREGISTER")
+            || upper.equals("/V1/LIST_CLUSTERS") || upper.equals("/V1/CREATE_CLUSTER")
+            || upper.equals("/V1/GET_CLUSTER_CONFIG") || upper.equals("/V1/GET_GLOBAL_CONFIG")
+            || upper.equals("/V1/SET_ALLOWED_IPS") || upper.equals("/V1/SET_TIMEOUT");
+    }
+
     public void registerController(RouteController controller) {
         if(controller == null) return;
         

@@ -39,8 +39,12 @@ public class ConnectionLifecycleIntegrationTest {
     private final AtomicBoolean backendRunning = new AtomicBoolean(true);
     private ExecutorService backendExecutor;
 
+    private String originalSinglePortProp;
+
     @BeforeEach
     public void setUp() throws Exception {
+        originalSinglePortProp = System.getProperty("gatebridge.admin.legacy.singleport");
+        System.setProperty("gatebridge.admin.legacy.singleport", "true");
         testCluster = new Cluster("lifecycle-test-cluster");
         testCluster.setRoutingMode(Cluster.RoutingMode.HYBRID);
         testCluster.setRequireToken(false);
@@ -93,6 +97,11 @@ public class ConnectionLifecycleIntegrationTest {
         }
         if (backendExecutor != null) {
             backendExecutor.shutdownNow();
+        }
+        if (originalSinglePortProp != null) {
+            System.setProperty("gatebridge.admin.legacy.singleport", originalSinglePortProp);
+        } else {
+            System.clearProperty("gatebridge.admin.legacy.singleport");
         }
     }
 

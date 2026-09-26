@@ -144,7 +144,9 @@ public class HttpTransport implements ServerTransport {
                         try {
                             String path = exchange.getRequestURI().getPath();
                             RouteResolution resolution = PathResolver.resolve(path, exchange.getRequestHeaders().getFirst("Host"), registry);
-                            boolean canUseFastPath = isFastPathEnabled() && resolution.isLocal() 
+                            boolean allowLegacySinglePortAdmin = Boolean.getBoolean("gatebridge.admin.legacy.singleport");
+                            boolean isLocalAllowed = resolution.isLocal() && (allowLegacySinglePortAdmin || !registry.isRouteAdmin(resolution.localRouteName()) || registry.isRoutePublic(resolution.localRouteName()));
+                            boolean canUseFastPath = isLocalAllowed && isFastPathEnabled() 
                                     && registry.isRouteFastPath(resolution.localRouteName())
                                     && (activeFilters.isEmpty() || (activeFilters.size() == 1 && activeFilters.get(0) instanceof CorsFilter));
 
@@ -236,8 +238,9 @@ public class HttpTransport implements ServerTransport {
             String clusterRouteKey = resolution.resolveTargetRouteKey();
             if (clusterRegistry != null && clusterRouteKey != null && clusterRegistry.getRoutes().containsKey(clusterRouteKey)) {
                 BiConsumer<String, PrintWriter> handler = clusterRegistry.getRoutes().get(clusterRouteKey);
-                if (clusterRouteKey.equals("/V1/GET_NODES_JSON")) {
-                    s.setContentType("application/json");
+                String keyUpper = clusterRouteKey.toUpperCase();
+                if (keyUpper.equals("/") || keyUpper.endsWith("_JSON") || keyUpper.endsWith("/HEALTH")) {
+                    s.setContentType("application/json; charset=utf-8");
                 } else {
                     s.setContentType("text/plain");
                 }
@@ -252,17 +255,23 @@ public class HttpTransport implements ServerTransport {
             reverseProxyService.proxyRequest(r, s, targetCluster, resolution.targetSubpath(), targetCluster.getTimeoutMs(), resolution.matchedRouteRule());
 
         } else if (resolution.isLocal()) {
-            BiConsumer<String, PrintWriter> handler = registry.getRoutes().get(resolution.localRouteName());
-            if (resolution.localRouteName().equals("/V1/GET_NODES_JSON")) {
-                s.setContentType("application/json");
-            } else {
-                s.setContentType("text/plain");
+            boolean allowLegacySinglePortAdmin = Boolean.getBoolean("gatebridge.admin.legacy.singleport");
+            if (allowLegacySinglePortAdmin || !registry.isRouteAdmin(resolution.localRouteName()) || registry.isRoutePublic(resolution.localRouteName())) {
+                BiConsumer<String, PrintWriter> handler = registry.getRoutes().get(resolution.localRouteName());
+                String keyUpper = resolution.localRouteName().toUpperCase();
+                if (keyUpper.equals("/") || keyUpper.endsWith("_JSON") || keyUpper.endsWith("/HEALTH")) {
+                    s.setContentType("application/json; charset=utf-8");
+                } else {
+                    s.setContentType("text/plain");
+                }
+                try (PrintWriter out = s.getWriter()) {
+                    String query = r.getQuery();
+                    String args = query != null ? query : "";
+                    handler.accept(args, out);
+                }
+                return;
             }
-            try (PrintWriter out = s.getWriter()) {
-                String query = r.getQuery();
-                String args = query != null ? query : "";
-                handler.accept(args, out);
-            }
+            errorHandler.handleStatus(s, 404, "Management Endpoints Disabled on Data Port");
         } else {
             errorHandler.handleStatus(s, 404, "Unknown Route: " + r.getPath());
         }

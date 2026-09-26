@@ -140,7 +140,8 @@ public class UndertowHttpTransport implements ServerTransport {
                     String path = exchange.getRequestPath();
                     RouteResolution resolution = PathResolver.resolve(path, exchange.getRequestHeaders().getFirst(io.undertow.util.Headers.HOST), registry);
                     boolean allowLegacySinglePortAdmin = Boolean.getBoolean("gatebridge.admin.legacy.singleport");
-                    boolean canUseFastPath = allowLegacySinglePortAdmin && isFastPathEnabled() && resolution.isLocal() 
+                    boolean isLocalAllowed = resolution.isLocal() && (allowLegacySinglePortAdmin || !registry.isRouteAdmin(resolution.localRouteName()) || registry.isRoutePublic(resolution.localRouteName()));
+                    boolean canUseFastPath = isLocalAllowed && isFastPathEnabled() 
                             && registry.isRouteFastPath(resolution.localRouteName())
                             && (activeFilters.isEmpty() || (activeFilters.size() == 1 && activeFilters.get(0) instanceof CorsFilter));
 
@@ -335,6 +336,16 @@ public class UndertowHttpTransport implements ServerTransport {
         res.flushBuffer();
         if (res.hasBody()) {
             byte[] bytes = res.getBodyBytes();
+            io.undertow.util.HeaderValues currentContentType = exchange.getResponseHeaders().get(io.undertow.util.Headers.CONTENT_TYPE);
+            String current = currentContentType != null ? currentContentType.getFirst() : null;
+            if (current == null || current.isEmpty() || current.startsWith("text/plain")) {
+                String bodyStr = new String(bytes, java.nio.charset.StandardCharsets.UTF_8).trim();
+                if (bodyStr.startsWith("{") || bodyStr.startsWith("[")) {
+                    exchange.getResponseHeaders().put(io.undertow.util.Headers.CONTENT_TYPE, "application/json; charset=utf-8");
+                } else if (current == null) {
+                    exchange.getResponseHeaders().put(io.undertow.util.Headers.CONTENT_TYPE, "text/plain");
+                }
+            }
             exchange.getResponseHeaders().put(io.undertow.util.Headers.CONTENT_LENGTH, String.valueOf(bytes.length));
             exchange.getResponseSender().send(java.nio.ByteBuffer.wrap(bytes));
         } else {
@@ -376,14 +387,15 @@ public class UndertowHttpTransport implements ServerTransport {
             reverseProxyService.proxyRequest(r, s, targetCluster, resolution.targetSubpath(), targetCluster.getTimeoutMs(), resolution.matchedRouteRule());
 
         } else if (resolution.isLocal()) {
-            if (allowLegacySinglePortAdmin) {
+            if (allowLegacySinglePortAdmin || !registry.isRouteAdmin(resolution.localRouteName()) || registry.isRoutePublic(resolution.localRouteName())) {
                 BiConsumer<String, PrintWriter> handler = registry.getRoutes().get(resolution.localRouteName());
                 if (handler != null) {
-                    if (resolution.localRouteName().equals("/V1/GET_NODES_JSON")) {
-                        s.setContentType("application/json");
-                    } else {
-                        s.setContentType("text/plain");
+                    String routeNameUpper = resolution.localRouteName().toUpperCase();
+                    String contentType = "text/plain";
+                    if (routeNameUpper.equals("/") || routeNameUpper.endsWith("_JSON") || routeNameUpper.endsWith("/HEALTH")) {
+                        contentType = "application/json; charset=utf-8";
                     }
+                    s.setContentType(contentType);
                     try (PrintWriter out = s.getWriter()) {
                         String query = r.getQuery();
                         String args = query != null ? query : "";
