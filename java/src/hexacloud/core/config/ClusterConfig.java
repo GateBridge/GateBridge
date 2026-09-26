@@ -23,6 +23,8 @@ public class ClusterConfig {
 
     // Scheduler & Network Defaults
     public static final int DEFAULT_PING_INTERVAL_SECONDS = 5;
+    public static final int DEFAULT_FAILURE_THRESHOLD = 3;
+    public static final int DEFAULT_RECOVERY_THRESHOLD = 2;
     public static final int SCHEDULER_THREAD_POOL_SIZE = 1;
     public static final long AWAIT_TERMINATION_TIMEOUT_MS = 800;
 

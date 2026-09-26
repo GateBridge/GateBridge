@@ -19,6 +19,8 @@ public class ServerNode {
     private final boolean isDynamic;
     private final boolean telemetryOnly;
     private final RoutingProtocol routingProtocol;
+    private final int consecutiveFailures;
+    private final int consecutiveSuccesses;
 
     private int latencyMs = 0;
     private double cpuUsage = 0.0;
@@ -26,11 +28,12 @@ public class ServerNode {
     private String runtime = "";
 
     /**
-     * Primary constructor including node name, isDynamic, telemetryOnly flags, and routingProtocol.
+     * Primary constructor including consecutive failure/success tracking counters.
      */
     public ServerNode(String name, String host, int port, NodeStatus status, boolean isExternal,
                       PingProtocol pingProtocol, String pingPath, String pingHeaderName, String pingHeaderValue,
-                      boolean isDynamic, boolean telemetryOnly, RoutingProtocol routingProtocol) {
+                      boolean isDynamic, boolean telemetryOnly, RoutingProtocol routingProtocol,
+                      int consecutiveFailures, int consecutiveSuccesses) {
         this.name = name != null && !name.isEmpty() ? name : (host + ":" + port);
         this.host = host;
         this.port = port;
@@ -43,7 +46,18 @@ public class ServerNode {
         this.isDynamic = isDynamic;
         this.telemetryOnly = telemetryOnly;
         this.routingProtocol = routingProtocol != null ? routingProtocol : RoutingProtocol.HTTP;
+        this.consecutiveFailures = consecutiveFailures;
+        this.consecutiveSuccesses = consecutiveSuccesses;
         this.id = name != null && !name.isEmpty() ? name : (host + ":" + port);
+    }
+
+    /**
+     * Constructor including node name, isDynamic, telemetryOnly flags, and routingProtocol.
+     */
+    public ServerNode(String name, String host, int port, NodeStatus status, boolean isExternal,
+                      PingProtocol pingProtocol, String pingPath, String pingHeaderName, String pingHeaderValue,
+                      boolean isDynamic, boolean telemetryOnly, RoutingProtocol routingProtocol) {
+        this(name, host, port, status, isExternal, pingProtocol, pingPath, pingHeaderName, pingHeaderValue, isDynamic, telemetryOnly, routingProtocol, 0, 0);
     }
 
     /**
@@ -220,9 +234,18 @@ public class ServerNode {
         return routingProtocol;
     }
 
+    public int consecutiveFailures() {
+        return consecutiveFailures;
+    }
+
+    public int consecutiveSuccesses() {
+        return consecutiveSuccesses;
+    }
+
     public ServerNode withDynamic(boolean isDynamic) {
         ServerNode node = new ServerNode(this.name, this.host, this.port, this.status, this.isExternal,
-                this.pingProtocol, this.pingPath, this.pingHeaderName, this.pingHeaderValue, isDynamic, this.telemetryOnly, this.routingProtocol);
+                this.pingProtocol, this.pingPath, this.pingHeaderName, this.pingHeaderValue, isDynamic, this.telemetryOnly, this.routingProtocol,
+                this.consecutiveFailures, this.consecutiveSuccesses);
         node.setLatencyMs(this.latencyMs);
         node.setCpuUsage(this.cpuUsage);
         node.setRamUsage(this.ramUsage);
@@ -235,7 +258,8 @@ public class ServerNode {
      */
     public ServerNode withStatus(NodeStatus newStatus) {
         ServerNode node = new ServerNode(this.name, this.host, this.port, newStatus, this.isExternal,
-                this.pingProtocol, this.pingPath, this.pingHeaderName, this.pingHeaderValue, this.isDynamic, this.telemetryOnly, this.routingProtocol);
+                this.pingProtocol, this.pingPath, this.pingHeaderName, this.pingHeaderValue, this.isDynamic, this.telemetryOnly, this.routingProtocol,
+                this.consecutiveFailures, this.consecutiveSuccesses);
         node.setLatencyMs(this.latencyMs);
         node.setCpuUsage(this.cpuUsage);
         node.setRamUsage(this.ramUsage);
@@ -248,7 +272,8 @@ public class ServerNode {
      */
     public ServerNode withPingProtocol(PingProtocol newProtocol) {
         ServerNode node = new ServerNode(this.name, this.host, this.port, this.status, this.isExternal,
-                newProtocol, this.pingPath, this.pingHeaderName, this.pingHeaderValue, this.isDynamic, this.telemetryOnly, this.routingProtocol);
+                newProtocol, this.pingPath, this.pingHeaderName, this.pingHeaderValue, this.isDynamic, this.telemetryOnly, this.routingProtocol,
+                this.consecutiveFailures, this.consecutiveSuccesses);
         node.setLatencyMs(this.latencyMs);
         node.setCpuUsage(this.cpuUsage);
         node.setRamUsage(this.ramUsage);
@@ -262,7 +287,22 @@ public class ServerNode {
     public ServerNode withRoutingProtocol(RoutingProtocol newProtocol) {
         ServerNode node = new ServerNode(this.name, this.host, this.port, this.status, this.isExternal,
                 this.pingProtocol, this.pingPath, this.pingHeaderName, this.pingHeaderValue,
-                this.isDynamic, this.telemetryOnly, newProtocol != null ? newProtocol : RoutingProtocol.HTTP);
+                this.isDynamic, this.telemetryOnly, newProtocol != null ? newProtocol : RoutingProtocol.HTTP,
+                this.consecutiveFailures, this.consecutiveSuccesses);
+        node.setLatencyMs(this.latencyMs);
+        node.setCpuUsage(this.cpuUsage);
+        node.setRamUsage(this.ramUsage);
+        node.setRuntime(this.runtime);
+        return node;
+    }
+
+    /**
+     * Create a new immutable ServerNode instance with updated consecutive failure and success counters.
+     */
+    public ServerNode withConsecutiveCounters(int consecutiveFailures, int consecutiveSuccesses) {
+        ServerNode node = new ServerNode(this.name, this.host, this.port, this.status, this.isExternal,
+                this.pingProtocol, this.pingPath, this.pingHeaderName, this.pingHeaderValue,
+                this.isDynamic, this.telemetryOnly, this.routingProtocol, consecutiveFailures, consecutiveSuccesses);
         node.setLatencyMs(this.latencyMs);
         node.setCpuUsage(this.cpuUsage);
         node.setRamUsage(this.ramUsage);
