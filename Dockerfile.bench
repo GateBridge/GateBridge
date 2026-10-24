@@ -21,7 +21,7 @@ RUN --mount=type=cache,target=/root/.m2 \
  && cp -r target/classes /out/classes
 
 # 2. Build wrk2 on the same base as the runtime, so shared libraries match (x86_64 only)
-FROM eclipse-temurin:21-jre AS wrk2-build
+FROM eclipse-temurin:21-jre-noble AS wrk2-build
 RUN apt-get update \
  && apt-get install -y --no-install-recommends build-essential libssl-dev zlib1g-dev git ca-certificates \
  && rm -rf /var/lib/apt/lists/*
@@ -29,7 +29,7 @@ RUN git clone --depth 1 https://github.com/giltene/wrk2.git /wrk2 \
  && make -C /wrk2 -j"$(nproc)"
 
 # 3. Runtime
-FROM eclipse-temurin:21-jre AS runtime
+FROM eclipse-temurin:21-jre-noble AS runtime
 ARG GIT_SHA=unknown
 RUN apt-get update \
  && apt-get install -y --no-install-recommends curl zlib1g python3 ca-certificates \

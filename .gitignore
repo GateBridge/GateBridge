@@ -30,4 +30,5 @@ docs/specs/
 docs/issues/
 docs/superpowers/
 results/
+docker/sut-results/
 cp.txt
