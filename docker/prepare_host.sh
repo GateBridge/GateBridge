@@ -74,6 +74,7 @@ if [ "$role" = sut ]; then
   echo "   (open TCP 4001 and 3001 in the firewall for the load generator machine)"
 else
   lg="0-1"; [ "$n" -ge 3 ] || lg="0"
+  echo "   mkdir -p results"
   echo "   docker run --rm --network host --cpuset-cpus $lg \\"
   echo "     --ulimit nofile=1048576:1048576 -u \$(id -u):\$(id -g) -v \"\$PWD/results:/results\" \\"
   echo "     -e GATEWAY_URL=http://<IP_OF_MACHINE_A>:4001/proxy/hello \\"

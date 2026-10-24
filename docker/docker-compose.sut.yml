@@ -19,7 +19,7 @@ x-common: &common
       soft: 1048576
       hard: 1048576
   volumes:
-    - ./results:/results
+    - ./sut-results:/results
 
 services:
   upstream:

@@ -20,7 +20,7 @@ RESULTS_DIR="${RESULTS_DIR:-/results}"
 
 OUT="$RESULTS_DIR/$(date +%Y%m%d-%H%M%S)"
 RAW="$OUT/raw"
-mkdir -p "$RAW" 2>/dev/null || { echo "Cannot write to $RESULTS_DIR. Mount a folder: -v \"\$PWD/results:/results\""; exit 1; }
+mkdir -p "$RAW" 2>/dev/null || { echo "Cannot write to $RESULTS_DIR. Run mkdir -p results first (as your user), then mount it: -v \"\$PWD/results:/results\""; exit 1; }
 
 wait_ready() {
   for _ in $(seq 1 60); do
