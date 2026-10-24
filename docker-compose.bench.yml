@@ -1,0 +1,73 @@
+# Three isolated containers with pinned cores, fixed heap and fixed memory:
+#   loadgen (wrk2) -> gateway (GateBridge) -> upstream
+# The loadgen can also hit the upstream directly, which gives the baseline
+# needed to isolate the overhead added by the gateway.
+#
+# Override the core layout for your machine, for example on an 8 core host:
+#   CPUSET_UP=0-1 CPUSET_GW=2-5 CPUSET_LG=6-7 docker compose -f docker-compose.bench.yml up -d --build
+# Keep the three sets disjoint, and leave a core for the host if you can.
+
+name: gatebridge-bench
+
+x-limits: &limits
+  mem_limit: ${MEM_LIMIT:-2g}
+  memswap_limit: ${MEM_LIMIT:-2g}
+  ulimits:
+    nofile:
+      soft: 1048576
+      hard: 1048576
+  volumes:
+    - ./results:/results
+  networks:
+    - bench
+
+services:
+  upstream:
+    <<: *limits
+    image: ${BENCH_IMAGE:-gatebridge-bench:local}
+    build:
+      context: .
+      dockerfile: Dockerfile.bench
+      target: runtime
+    cpuset: ${CPUSET_UP:-0-1}
+    environment:
+      GB_ROLE: upstream
+      GB_UP_PORT: "3001"
+      GB_UP_DELAY_MS: ${UP_DELAY_MS:-0}
+      GB_UP_PAYLOAD_BYTES: ${UP_PAYLOAD:-256}
+      JAVA_OPTS: >-
+        -Xms512m -Xmx512m -XX:+UseG1GC -XX:+AlwaysPreTouch -XX:+ExitOnOutOfMemoryError
+        -Xlog:gc:file=/results/gc-upstream.log:time,uptime
+
+  gateway:
+    <<: *limits
+    image: ${BENCH_IMAGE:-gatebridge-bench:local}
+    depends_on:
+      - upstream
+    cpuset: ${CPUSET_GW:-2-5}
+    environment:
+      GB_ROLE: gateway
+      GB_BASE_PORT: "4000"
+      GB_UPSTREAMS: ${GB_UPSTREAMS:-upstream:3001}
+      GB_ROUTE: /proxy/**
+      GB_TARGET_PATH: /hello
+      GB_CAP: ${GB_CAP:-0}
+      GB_FASTPATH: ${GB_FASTPATH:-}
+      JAVA_OPTS: >-
+        -Xms1g -Xmx1g -XX:+UseG1GC -XX:+AlwaysPreTouch -XX:+ExitOnOutOfMemoryError
+        -Xlog:gc:file=/results/gc-gateway.log:time,uptime
+
+  loadgen:
+    <<: *limits
+    build:
+      context: .
+      dockerfile: Dockerfile.bench
+      target: loadgen
+    image: ${LOADGEN_IMAGE:-gatebridge-loadgen:local}
+    cpuset: ${CPUSET_LG:-6-7}
+    depends_on:
+      - gateway
+
+networks:
+  bench:
+    driver: bridge

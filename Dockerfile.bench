@@ -1,0 +1,47 @@
+# syntax=docker/dockerfile:1
+#
+# Single self contained benchmark image. Roles, chosen by the first argument:
+#   gateway   GateBridge reverse proxy (BenchMain)
+#   upstream  backend with fixed service time and payload (BenchMain)
+#   bench     open loop load generator (wrk2) + orchestration + summary
+#   version   prints the git commit the image was built from
+#
+# Build from the repository root:
+#   docker build -f Dockerfile.bench --build-arg GIT_SHA=$(git rev-parse HEAD) -t gatebridge-bench:local .
+
+# 1. Build GateBridge classes and runtime dependencies
+FROM maven:3.9-eclipse-temurin-21 AS build
+WORKDIR /src
+COPY pom.xml .
+COPY java ./java
+COPY src ./src
+RUN --mount=type=cache,target=/root/.m2 \
+    mvn -B -q -DskipTests compile \
+ && mvn -B -q dependency:copy-dependencies -DincludeScope=runtime -DoutputDirectory=/out/lib \
+ && cp -r target/classes /out/classes
+
+# 2. Build wrk2 on the same base as the runtime, so shared libraries match (x86_64 only)
+FROM eclipse-temurin:21-jre AS wrk2-build
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends build-essential libssl-dev zlib1g-dev git ca-certificates \
+ && rm -rf /var/lib/apt/lists/*
+RUN git clone --depth 1 https://github.com/giltene/wrk2.git /wrk2 \
+ && make -C /wrk2 -j"$(nproc)"
+
+# 3. Runtime
+FROM eclipse-temurin:21-jre AS runtime
+ARG GIT_SHA=unknown
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends curl zlib1g python3 ca-certificates \
+ && (apt-get install -y --no-install-recommends libssl3t64 || apt-get install -y --no-install-recommends libssl3) \
+ && rm -rf /var/lib/apt/lists/*
+WORKDIR /app
+COPY --from=build /out/classes ./classes
+COPY --from=build /out/lib ./lib
+COPY --from=wrk2-build /wrk2/wrk /usr/local/bin/wrk
+COPY docker/entrypoint.sh docker/bench.sh docker/summarize.py /app/bin/
+RUN chmod +x /app/bin/entrypoint.sh /app/bin/bench.sh \
+ && echo "$GIT_SHA" > /app/VERSION
+ENV JAVA_OPTS="-XX:+UseG1GC -XX:+AlwaysPreTouch -XX:+ExitOnOutOfMemoryError"
+ENTRYPOINT ["/app/bin/entrypoint.sh"]
+CMD ["gateway"]
