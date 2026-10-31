@@ -12,17 +12,12 @@ import java.util.concurrent.Executors;
 
 public class JdkHttpProxyClient implements HttpProxyClient {
     static {
-        if (System.getProperty("jdk.httpclient.connectionPoolSize") == null) {
-            System.setProperty("jdk.httpclient.connectionPoolSize", "500");
-        }
+        System.setProperty("jdk.httpclient.allowRestrictedHeaders", "connection,content-length,expect,host,upgrade");
     }
 
     private final HttpClient client;
 
     public JdkHttpProxyClient() {
-        if (System.getProperty("jdk.httpclient.connectionPoolSize") == null) {
-            System.setProperty("jdk.httpclient.connectionPoolSize", "500");
-        }
         this.client = HttpClient.newBuilder()
                 .version(HttpClient.Version.HTTP_1_1)
                 .connectTimeout(Duration.ofSeconds(5))
@@ -32,11 +27,12 @@ public class JdkHttpProxyClient implements HttpProxyClient {
     }
 
     @Override
-    public ProxyResponse execute(String targetUrl, String method, Map<String, List<String>> headers, InputStream body, int timeoutMs) throws Exception {
+    public ProxyResponse proxy(String method, String targetUrl, Map<String, List<String>> headers, InputStream body) throws Exception {
         boolean hasBody = false;
         if (headers != null) {
             List<String> contentLengths = headers.get("Content-Length");
             if (contentLengths == null || contentLengths.isEmpty()) {
+                // Try case-insensitive lookup
                 for (Map.Entry<String, List<String>> entry : headers.entrySet()) {
                     if ("Content-Length".equalsIgnoreCase(entry.getKey())) {
                         contentLengths = entry.getValue();
@@ -47,61 +43,61 @@ public class JdkHttpProxyClient implements HttpProxyClient {
             if (contentLengths != null && !contentLengths.isEmpty()) {
                 try {
                     long len = Long.parseLong(contentLengths.get(0).trim());
-                    if (len > 0) {
-                        hasBody = true;
-                    }
-                } catch (NumberFormatException ignored) {}
-            }
-            if (!hasBody) {
-                List<String> encoding = headers.get("Transfer-Encoding");
-                if (encoding == null || encoding.isEmpty()) {
+                    hasBody = len > 0;
+                } catch (Exception ignored) {}
+            } else {
+                List<String> transferEncodings = headers.get("Transfer-Encoding");
+                if (transferEncodings == null || transferEncodings.isEmpty()) {
                     for (Map.Entry<String, List<String>> entry : headers.entrySet()) {
                         if ("Transfer-Encoding".equalsIgnoreCase(entry.getKey())) {
-                            encoding = entry.getValue();
+                            transferEncodings = entry.getValue();
                             break;
                         }
                     }
                 }
-                if (encoding != null && !encoding.isEmpty() && encoding.get(0).toLowerCase().contains("chunked")) {
+                if (transferEncodings != null && !transferEncodings.isEmpty()) {
                     hasBody = true;
                 }
             }
         }
-
-        HttpRequest.BodyPublisher publisher;
-        if ("GET".equalsIgnoreCase(method) || "HEAD".equalsIgnoreCase(method)) {
-            publisher = HttpRequest.BodyPublishers.noBody();
-        } else if (hasBody && body != null) {
-            publisher = HttpRequest.BodyPublishers.ofInputStream(() -> body);
-        } else {
-            publisher = HttpRequest.BodyPublishers.noBody();
+        if (!hasBody) {
+            hasBody = "POST".equalsIgnoreCase(method) || "PUT".equalsIgnoreCase(method) || "PATCH".equalsIgnoreCase(method);
         }
+
+        HttpRequest.BodyPublisher publisher = (hasBody && body != null)
+                ? HttpRequest.BodyPublishers.ofInputStream(() -> body)
+                : HttpRequest.BodyPublishers.noBody();
 
         HttpRequest.Builder builder = HttpRequest.newBuilder()
                 .uri(URI.create(targetUrl))
                 .method(method, publisher)
-                .timeout(Duration.ofMillis(timeoutMs > 0 ? timeoutMs : 10000));
+                .timeout(Duration.ofSeconds(10));
 
         if (headers != null) {
             for (Map.Entry<String, List<String>> entry : headers.entrySet()) {
-                String name = entry.getKey();
-                if (name == null || name.equalsIgnoreCase("Host") || name.equalsIgnoreCase("Content-Length")) {
+                String key = entry.getKey();
+                if (key == null || key.equalsIgnoreCase("Host") || key.equalsIgnoreCase("Content-Length") 
+                        || key.equalsIgnoreCase("Connection") || key.equalsIgnoreCase("Upgrade")
+                        || key.equalsIgnoreCase("Transfer-Encoding") || key.equalsIgnoreCase("Keep-Alive")
+                        || key.equalsIgnoreCase("Proxy-Connection")) {
                     continue;
                 }
-                for (String val : entry.getValue()) {
-                    if (val != null) {
-                        builder.header(name, val);
-                    }
+                if (key.equalsIgnoreCase("X-Forwarded-For")) {
+                    key = "X-Forwarded-For";
+                } else if (key.equalsIgnoreCase("X-Forwarded-Host")) {
+                    key = "X-Forwarded-Host";
+                } else if (key.equalsIgnoreCase("X-Forwarded-Proto")) {
+                    key = "X-Forwarded-Proto";
+                } else if (key.equalsIgnoreCase("Content-Type")) {
+                    key = "Content-Type";
+                }
+                if (!entry.getValue().isEmpty()) {
+                    builder.header(key, String.join(", ", entry.getValue()));
                 }
             }
         }
 
-        HttpResponse<InputStream> resp = client.send(builder.build(), HttpResponse.BodyHandlers.ofInputStream());
-
-        return new ProxyResponse(
-                resp.statusCode(),
-                resp.headers().map(),
-                resp.body()
-        );
+        HttpResponse<InputStream> response = client.send(builder.build(), HttpResponse.BodyHandlers.ofInputStream());
+        return new ProxyResponse(response.statusCode(), response.headers().map(), response.body());
     }
 }
