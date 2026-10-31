@@ -45,6 +45,19 @@ Ensure the project compiles cleanly and all unit tests pass before making edits:
 mvn clean test
 ```
 
+To verify compatibility across all supported Java profiles (**Java 21**, **Java 17**, and **Java 8**) locally:
+
+```bash
+# Full test suite (Java 21) + compatibility packaging (Java 17 & Java 8)
+./scripts/test_all_profiles.sh
+
+# Fast compilation check only across all profiles
+./scripts/test_all_profiles.sh --fast
+
+# Or test a single profile specifically
+./scripts/test_all_profiles.sh java8
+```
+
 ### 4. Code & Testing Standards
 - Write clean, self-documenting Java code following standard Java naming conventions.
 - Use **Virtual Threads (`Thread.ofVirtual()`)** for non-blocking I/O concurrency where applicable.

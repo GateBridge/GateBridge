@@ -61,7 +61,7 @@ git commit -m "docs(api): update reverse proxy routing protocol spec"
 ## 3. Pull Request & Merge Policy
 
 1. **Contributor Pull Requests Target `dev`**: All contributor feature and bugfix Pull Requests MUST target the `dev` branch.
-2. **Review & Status Checks**: Every PR must pass all automated CI build/test checks (`ci.yml`) and receive maintainer approval before merging into `dev`.
+2. **Review & Status Checks**: Every PR must pass all automated CI build/test checks (`ci.yml` - validating Java 21 test suite and Java 17/Java 8 compatibility overlays) and receive maintainer approval before merging into `dev`.
 3. **Squash and Merge**: Feature PRs merged into `dev` use **Squash and Merge** to maintain a clean linear development log.
 4. **Release Promotion (`dev` -> `master`)**: Maintainers promote integrated changes from `dev` to `master` prior to releasing. Tagging a release commit on `master` (e.g. `v1.5.0`) triggers the automated release deployment (`release.yml`).
 5. **Branch Cleanup**: Topic branches should be deleted immediately after merging into `dev`.
