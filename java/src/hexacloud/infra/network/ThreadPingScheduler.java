@@ -42,9 +42,12 @@ public class ThreadPingScheduler {
         this.pingClient = new MultiProtocolPingAdapter();
         if (eventManager != null) {
             eventManager.sub(ClusterEvent.NodeDeregistered.class, (ClusterListener) event -> {
-                if (event instanceof ClusterEvent.NodeDeregistered dereg && dereg.host() != null) {
-                    failureCounters.remove(dereg.host());
-                    recoveryCounters.remove(dereg.host());
+                if (event instanceof ClusterEvent.NodeDeregistered) {
+                    ClusterEvent.NodeDeregistered dereg = (ClusterEvent.NodeDeregistered) event;
+                    if (dereg.host() != null) {
+                        failureCounters.remove(dereg.host());
+                        recoveryCounters.remove(dereg.host());
+                    }
                 }
             });
         }

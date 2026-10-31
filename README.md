@@ -237,12 +237,12 @@ graph TD
 ```
 
 **Showcase Application Custom Routes and Listeners Flow:**
-This diagram illustrates the custom event listeners and custom routes defined in the reference [MinimalApplication.java](java/src/hexacloud/application/MinimalApplication.java) showcase:
+This diagram illustrates the custom event listeners and custom routes defined in the reference [Main.java](java/src/hexacloud/application/Main.java) showcase:
 
 ```mermaid
 graph TD
     %% Nodes and Connections
-    subgraph CustomApp [Minimal Application Demo Showcase]
+    subgraph CustomApp [Main Application Demo Showcase]
         subgraph Routes [DemoRouteController - Custom Routes]
             HELLO[Route: HELLO] -->|Returns| HelloResp["HELLO FROM MINIMAL APPLICATION ROUTE!"]
             SYSINFO[Route: SYSTEM_INFO] -->|Returns| SysInfoResp["GateBridge Status: ACTIVE + CPU Info"]
@@ -489,8 +489,8 @@ An interactive command center for cluster operations:
 
 ## 📦 Project Structure
 
-* `java/src/hexacloud/application/MinimalApplication.java` — Example standalone application demonstrating programmatic bootstrapping, custom routes, and custom event listeners running in headless and toggle TUI mode.
-* `java/src/hexacloud/application/TerminalMain.java` — Bootstraps a gateway and starts the interactive DevOps Panel.
+* `java/src/hexacloud/application/Main.java` — Reference showcase application demonstrating programmatic bootstrapping, custom routes, filters, and custom event listeners with interactive toggle TUI mode.
+* `java/src/hexacloud/application/BenchMain.java` — Unified headless benchmark application supporting both gateway and upstream roles for containerized performance testing.
 * `java/src/hexacloud/core/ports/` — Declares clean segregation boundaries: `GatewayBuilderPort` (configuration) and `RunningGatewayPort` (runtime control).
 * `java/src/hexacloud/core/tui/` — Subsystem for rendering, key handling, and input scanner loops.
 * `java/src/hexacloud/core/utils/concurrent/ThreadManager.java` — Core virtual thread wrapper class.
@@ -502,7 +502,7 @@ An interactive command center for cluster operations:
 Compile and start the DevOps interactive terminal console:
 
 ```bash
-./show_case/run_terminal.sh
+./show_case/run.sh
 ```
 
 ---

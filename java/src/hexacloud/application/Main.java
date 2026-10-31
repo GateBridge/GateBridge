@@ -1,22 +1,28 @@
 package hexacloud.application;
 
-import hexacloud.core.ports.GatewayBuilderPort;
-import hexacloud.core.ports.RunningGatewayPort;
-import hexacloud.core.utils.common.DebugUtils;
-import hexacloud.infra.gateway.GatewayFactory;
 import hexacloud.core.event.Event;
 import hexacloud.core.event.EventController;
 import hexacloud.core.event.EventFormat;
 import hexacloud.core.event.Subscribe;
 import hexacloud.core.cluster.event.ClusterEvent.NodeRegistered;
 import hexacloud.core.cluster.event.ClusterEvent.NodeEventSubmitted;
+import hexacloud.core.cluster.event.ClusterEvent.NodeStatusChanged;
+import hexacloud.core.cluster.event.ClusterEvent.NodeTelemetryUpdated;
 import hexacloud.core.model.NodeStatus;
 import hexacloud.core.model.PingProtocol;
 import hexacloud.core.model.ServerNode;
+import hexacloud.core.ports.GatewayBuilderPort;
+import hexacloud.core.ports.RunningGatewayPort;
 import hexacloud.core.server.route.RouteController;
 import hexacloud.core.server.route.RouteMapping;
 import hexacloud.core.tui.TerminalUiFactory;
+import hexacloud.core.utils.common.DebugUtils;
+import hexacloud.core.utils.concurrent.ThreadManager;
+import hexacloud.infra.gateway.GatewayFactory;
+
 import java.io.PrintWriter;
+import java.lang.management.ManagementFactory;
+import java.lang.management.ThreadMXBean;
 import java.util.Collections;
 
 public class Main {
@@ -82,6 +88,25 @@ public class Main {
             Collections.singletonMap("source", "Main")
         ));
 
+        // Background monitoring loop to log system resources and thread breakdown
+        ThreadManager.startVirtual("SystemMonitor", () -> {
+            ThreadMXBean threadMXBean = ManagementFactory.getThreadMXBean();
+            Runtime runtime = Runtime.getRuntime();
+            while (true) {
+                try {
+                    Thread.sleep(5000);
+                    int threadCount = threadMXBean.getThreadCount();
+                    long freeMem = runtime.freeMemory() / (1024 * 1024);
+                    long totalMem = runtime.totalMemory() / (1024 * 1024);
+                    long usedMem = totalMem - freeMem;
+                    DebugUtils.info(String.format("[MONITOR] OS Threads: %d | Heap: %d MB / %d MB", 
+                        threadCount, usedMem, totalMem));
+                } catch (InterruptedException e) {
+                    break;
+                }
+            }
+        });
+
         // Launch the DevOps Panel in non-blocking toggle mode (detach/reattach with ENTER)
         TerminalUiFactory.createTui("MyCompany - GateBridge DevOps Panel")
             .seedGateway(runningGateway)
@@ -115,6 +140,16 @@ public class Main {
         }
 
         @Subscribe
+        public void onNodeStatusChanged(NodeStatusChanged event) {
+            DebugUtils.info("Event received: Node status changed -> Host: " + event.host() + " | Status: " + event.status());
+        }
+
+        @Subscribe
+        public void onNodeTelemetryUpdated(NodeTelemetryUpdated event) {
+            DebugUtils.info("Event received: Telemetry updated for node: " + event.host());
+        }
+
+        @Subscribe
         public void onNodeEventSubmitted(NodeEventSubmitted event) {
             DebugUtils.info(
                 "Event received: " + event.event() + " from " + event.host() +
@@ -128,6 +163,12 @@ public class Main {
         @RouteMapping("/hello")
         public void sayHello(String args, PrintWriter out) {
             out.println("HELLO FROM DEVELOPER ROUTE! Args: " + args);
+        }
+
+        @RouteMapping("/system_info")
+        public void handleSystemInfo(String args, PrintWriter out) {
+            out.println("GateBridge Framework Status: ACTIVE");
+            out.println("Available Processors: " + Runtime.getRuntime().availableProcessors());
         }
     }
 

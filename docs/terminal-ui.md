@@ -93,7 +93,7 @@ To prevent partial render reads and race conditions when background threads (suc
 
 ## Automatic Persistence
 
-Any cluster parameter updates, node additions/deletions, or non-sensitive configuration modifications made in the TUI are automatically saved in the background to the `java/resources/hexacloud-state.properties` configuration file. This allows restarting the application with a clean one-line loader (`OnlyTerminalMain.java`) while preserving operational customizations.
+Any cluster parameter updates, node additions/deletions, or non-sensitive configuration modifications made in the TUI are automatically saved in the background to the `java/resources/hexacloud-state.properties` configuration file. This allows restarting the application with a clean one-line loader (`TerminalUiFactory.createTui(...).start()`) while preserving operational customizations.
 
 Secrets are intentionally not persisted. Cluster API tokens and ping header values must be provided again at runtime through code, environment configuration, or the TUI.
 
