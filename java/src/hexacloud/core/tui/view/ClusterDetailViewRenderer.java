@@ -120,7 +120,7 @@ public class ClusterDetailViewRenderer {
             y++;
         } else {
             int startIdx = Math.max(0, filteredLogs.size() - logsLinesCount);
-            int maxLineWidth = W - 7;
+            int maxLineWidth = W - 7; // TODO: not used variable
             for (int i = startIdx; i < filteredLogs.size(); i++) {
                 DebugUtils.LogEntry entry = filteredLogs.get(i);
                 String logLine = entry.toString();

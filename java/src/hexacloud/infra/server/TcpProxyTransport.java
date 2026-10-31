@@ -205,7 +205,7 @@ public class TcpProxyTransport implements ServerTransport {
         }
     }
 
-    private void tunnel(InputStream in, OutputStream out, Socket inSocket, Socket outSocket) {
+    private void tunnel(InputStream in, OutputStream out, Socket inSocket, Socket outSocket) { // TODO: never used method
         tunnel(in, out, inSocket, outSocket, null);
     }
 

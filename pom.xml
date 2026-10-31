@@ -176,7 +176,7 @@
                     </overlays>
                 </configuration>
                 <executions>
-                    <execution>
+                    <execution> // TODO: Plugin execution not covered by lifecycle configuration: com.github.watashi-00:source-overlay-plugin:1.0.5:overlay (execution: default, phase: generate-sources)
                         <phase>generate-sources</phase>
                         <goals>
                             <goal>overlay</goal>

@@ -103,7 +103,7 @@ public class TelnetBenchmarkClient {
         return 8080;
     }
 
-    private static void closeQuietly(Socket socket) {
+    private static void closeQuietly(Socket socket) { // TODO: never used method
         if (socket != null) {
             try {
                 socket.close();

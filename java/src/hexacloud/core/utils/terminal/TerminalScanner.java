@@ -1,7 +1,5 @@
 package hexacloud.core.utils.terminal;
 
-import java.util.Scanner;
-
 public class TerminalScanner {
 
     private TerminalScanner() {}

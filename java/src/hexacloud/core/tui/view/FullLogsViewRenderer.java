@@ -49,7 +49,7 @@ public class FullLogsViewRenderer {
             frameBuffer.printAt(4, y, "No logs recorded yet.");
             y++;
         } else {
-            int maxLineWidth = W - 7;
+            int maxLineWidth = W - 7; // TODO: not used variable
             for (int i = 0; i < viewportHeight; i++) {
                 int index = state.logViewportStart + i;
                 if (index >= logs.size()) break;

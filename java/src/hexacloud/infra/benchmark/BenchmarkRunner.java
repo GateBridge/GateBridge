@@ -6,7 +6,6 @@ import hexacloud.infra.benchmark.protocol.TcpBenchmarkClient;
 import hexacloud.infra.benchmark.protocol.TelnetBenchmarkClient;
 import hexacloud.infra.benchmark.protocol.WsBenchmarkClient;
 
-import java.net.URI;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
