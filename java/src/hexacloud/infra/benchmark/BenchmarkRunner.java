@@ -399,7 +399,7 @@ public class BenchmarkRunner {
         if (!checkPreflightConnectivity(protocol, target)) {
             System.err.println("[WARNING] Target endpoint '" + target + "' is unreachable!");
             System.err.println("[WARNING] Make sure the GateBridge server is running before executing benchmarks.");
-            System.err.println("[WARNING] Quick start command: mvn compile exec:java -Dexec.mainClass=\"hexacloud.application.MinimalApplication\"\n");
+            System.err.println("[WARNING] Quick start command: mvn compile exec:java -Dexec.mainClass=\"hexacloud.application.Main\"\n");
         }
 
         SystemMetricsCollector sysCollector = new SystemMetricsCollector();
