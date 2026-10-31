@@ -1,0 +1,52 @@
+# Machine A (system under test): GateBridge gateway + upstream, pinned cores, host networking.
+# Host networking avoids Docker NAT overhead. Ports used on the host: 4001 (gateway), 3001 (upstream).
+#
+#   export BENCH_IMAGE=<dockerhub user>/gatebridge-bench:<tag>
+#   export CPUSET_UP=0-1 CPUSET_GW=2-6        # see the output of prepare_host.sh sut
+#   docker compose -f docker-compose.sut.yml up -d
+#
+# Open ports 4001 and 3001 to machine B in the firewall if it is a different computer.
+name: gatebridge-sut
+
+x-common: &common
+  image: ${BENCH_IMAGE:?set BENCH_IMAGE, e.g. youruser/gatebridge-bench:<tag>}
+  network_mode: host
+  restart: "no"
+  mem_limit: ${MEM_LIMIT:-2g}
+  memswap_limit: ${MEM_LIMIT:-2g}
+  ulimits:
+    nofile:
+      soft: 1048576
+      hard: 1048576
+  volumes:
+    - ./sut-results:/results
+
+services:
+  upstream:
+    <<: *common
+    command: ["upstream"]
+    cpuset: ${CPUSET_UP:-0-1}
+    environment:
+      GB_UP_PORT: "3001"
+      GB_UP_DELAY_MS: ${UP_DELAY_MS:-0}
+      GB_UP_PAYLOAD_BYTES: ${UP_PAYLOAD:-256}
+      JAVA_OPTS: >-
+        -Xms512m -Xmx512m -XX:+UseG1GC -XX:+AlwaysPreTouch -XX:+ExitOnOutOfMemoryError
+        -Xlog:gc:file=/results/gc-upstream.log:time,uptime
+
+  gateway:
+    <<: *common
+    command: ["gateway"]
+    depends_on:
+      - upstream
+    cpuset: ${CPUSET_GW:-2-5}
+    environment:
+      GB_BASE_PORT: "4000"
+      GB_UPSTREAMS: ${GB_UPSTREAMS:-127.0.0.1:3001}
+      GB_ROUTE: /proxy/**
+      GB_TARGET_PATH: /hello
+      GB_CAP: ${GB_CAP:-0}
+      GB_FASTPATH: ${GB_FASTPATH:-}
+      JAVA_OPTS: >-
+        -Xms1g -Xmx1g -XX:+UseG1GC -XX:+AlwaysPreTouch -XX:+ExitOnOutOfMemoryError
+        -Xlog:gc:file=/results/gc-gateway.log:time,uptime

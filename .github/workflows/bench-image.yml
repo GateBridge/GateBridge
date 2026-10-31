@@ -1,0 +1,38 @@
+name: bench-image
+
+# Needs, in the repository settings:
+#   Variables: DOCKERHUB_USERNAME
+#   Secrets:   DOCKERHUB_TOKEN  (Docker Hub, Account settings, Personal access tokens, read and write)
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ["bench-*"]
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          username: ${{ vars.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile.bench
+          target: runtime
+          platforms: linux/amd64
+          push: true
+          build-args: GIT_SHA=${{ github.sha }}
+          tags: |
+            ${{ vars.DOCKERHUB_USERNAME }}/gatebridge-bench:${{ github.sha }}
+            ${{ vars.DOCKERHUB_USERNAME }}/gatebridge-bench:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - run: echo "Published tag ${{ github.sha }}"
